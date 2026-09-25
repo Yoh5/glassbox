@@ -1,0 +1,200 @@
+"""The ledger: one record per decision, each chained to the one before it.
+
+A log anyone can edit afterwards is a testimony. Chaining makes an edit, a
+deletion and an insertion equally visible, which is what turns the journal into
+a proof. The cost is that nothing can ever be scrubbed — which is exactly why
+redaction happens at the boundary, before anything is written.
+
+One record per decision, and one per refusal. A ledger that only fills up when
+the agent acts cannot explain a quiet afternoon.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from .evidence import EvidenceStore, UnknownEvidence
+
+
+@dataclass(frozen=True)
+class Explained:
+    """A decision with its evidence resolved — the answer to "why did it do that".
+
+    The evidence is returned whole, payload included: after an incident the
+    question is not which ids were cited but what those bytes said.
+    """
+
+    decision: "Decision"
+    position: int
+    evidence: tuple[Any, ...]
+
+
+@dataclass(frozen=True)
+class Decision:
+    name: str
+    started_at: str
+    agent_version: str
+    evidence: tuple[str, ...]
+    model_calls: tuple[Mapping[str, Any], ...]
+    actions: tuple[Mapping[str, Any], ...]
+    outcome: Mapping[str, Any]
+    prev: str | None
+    chain: str = field(compare=False)
+
+
+def _canonical(body: Mapping[str, Any]) -> str:
+    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _chain_hash(body: Mapping[str, Any], prev: str | None) -> str:
+    material = (prev or "") + _canonical(body)
+    return "sha256:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+class Ledger:
+    """Append-only JSON Lines, one decision per line.
+
+    JSON Lines rather than a database on purpose: an auditor with no tooling
+    can read it, `tail` it while a run is in progress, and diff two copies.
+    """
+
+    def __init__(self, path: str | Path, store: EvidenceStore | None = None) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._store = store
+
+    def append(
+        self,
+        *,
+        name: str,
+        started_at: str,
+        agent_version: str,
+        evidence: Sequence[str] = (),
+        model_calls: Sequence[Mapping[str, Any]] = (),
+        actions: Sequence[Mapping[str, Any]] = (),
+        outcome: Mapping[str, Any] | None = None,
+    ) -> Decision:
+        body = {
+            "name": name,
+            "started_at": started_at,
+            "agent_version": agent_version,
+            "evidence": list(evidence),
+            "model_calls": [dict(c) for c in model_calls],
+            "actions": [dict(a) for a in actions],
+            "outcome": dict(outcome or {}),
+        }
+        prev = self._last_chain()
+        chain = _chain_hash(body, prev)
+
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(_canonical({**body, "prev": prev, "chain": chain}) + "\n")
+
+        return Decision(
+            name=name,
+            started_at=started_at,
+            agent_version=agent_version,
+            evidence=tuple(evidence),
+            model_calls=tuple(dict(c) for c in model_calls),
+            actions=tuple(dict(a) for a in actions),
+            outcome=dict(outcome or {}),
+            prev=prev,
+            chain=chain,
+        )
+
+    def records(self) -> list[Decision]:
+        return [self._revive(json.loads(line)) for line in self._lines()]
+
+    def verify(self) -> list[str]:
+        """Re-chains the whole file and resolves every citation.
+
+        Reports the position of the first record that does not hold, counting
+        from one, because "something is wrong somewhere" is not a finding.
+        """
+        problems: list[str] = []
+        prev: str | None = None
+
+        for position, line in enumerate(self._lines(), start=1):
+            raw = json.loads(line)
+            body = {key: raw[key] for key in
+                    ("name", "started_at", "agent_version", "evidence",
+                     "model_calls", "actions", "outcome")}
+
+            if raw.get("prev") != prev:
+                problems.append(
+                    f"record {position} ({raw['name']}) does not follow the one before it: "
+                    "a record was edited, deleted or inserted"
+                )
+            elif _chain_hash(body, prev) != raw.get("chain"):
+                problems.append(
+                    f"record {position} ({raw['name']}) has been edited since it was written"
+                )
+
+            prev = raw.get("chain")
+
+            if self._store is not None:
+                for evidence_id in raw["evidence"]:
+                    try:
+                        self._store.get(evidence_id)
+                    except UnknownEvidence:
+                        problems.append(
+                            f"record {position} ({raw['name']}) cites evidence "
+                            f"{evidence_id[:19]}... which the store does not have"
+                        )
+
+        return problems
+
+    def explain(self, position: int) -> Explained:
+        """The decision at `position` (counting from one) with its evidence read back."""
+        if self._store is None:
+            raise ValueError(
+                "explaining a decision needs the evidence store it cited: "
+                "construct the Ledger with store=EvidenceStore(...)"
+            )
+        records = self.records()
+        if not 1 <= position <= len(records):
+            raise IndexError(f"no record at position {position}; the ledger holds {len(records)}")
+        decision = records[position - 1]
+        return Explained(
+            decision=decision,
+            position=position,
+            evidence=tuple(self._store.get(i) for i in decision.evidence),
+        )
+
+    def trace_action(self, kind: str) -> list[Explained]:
+        """Every decision that took an action of this kind, evidence included.
+
+        This is the incident path: start from the thing that should not have
+        happened, end at the input that caused it.
+        """
+        return [
+            self.explain(position)
+            for position, record in enumerate(self.records(), start=1)
+            if any(action.get("kind") == kind for action in record.actions)
+        ]
+
+    def _lines(self) -> list[str]:
+        if not self.path.exists():
+            return []
+        return [line for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def _last_chain(self) -> str | None:
+        lines = self._lines()
+        return json.loads(lines[-1])["chain"] if lines else None
+
+    @staticmethod
+    def _revive(raw: Mapping[str, Any]) -> Decision:
+        return Decision(
+            name=raw["name"],
+            started_at=raw["started_at"],
+            agent_version=raw["agent_version"],
+            evidence=tuple(raw["evidence"]),
+            model_calls=tuple(raw["model_calls"]),
+            actions=tuple(raw["actions"]),
+            outcome=raw["outcome"],
+            prev=raw["prev"],
+            chain=raw["chain"],
+        )
