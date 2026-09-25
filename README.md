@@ -18,7 +18,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **94 tests.**
+[CADRAGE.md](CADRAGE.md). **98 tests.**
 
 | Piece | Status |
 |---|---|
@@ -156,6 +156,11 @@ in the model's self-assessment. What comes out is the number nobody publishes â€
 questions that were escalated, how many actually got a different answer. Reported as `None`
 rather than `0` when nothing was escalated, because "the big model never helped" and "we
 never had to ask it" are different claims.
+
+**Appending is thread-safe; the file is not multi-process.** Reading the last chain and
+writing the next record cannot be separated â€” two threads doing it at once would produce two
+records pointing at the same predecessor. A lock covers that. It does not cover two
+*processes* writing the same file, which would need a file lock: one ledger per process.
 
 **One record per decision, and one per refusal.** A ledger that only fills up when the agent
 acts cannot explain a quiet afternoon.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -83,12 +84,21 @@ class Ledger:
 
     JSON Lines rather than a database on purpose: an auditor with no tooling
     can read it, `tail` it while a run is in progress, and diff two copies.
+
+    Appending is safe from several threads. It is NOT safe from several
+    processes writing the same file: the lock lives in this interpreter, and
+    two processes would need a file lock. One ledger per process.
     """
 
     def __init__(self, path: str | Path, store: EvidenceStore | None = None) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._store = store
+        # Reading the last chain and writing the next record must not be
+        # separable: two threads doing it at once produce two records pointing
+        # at the same predecessor, and the chain breaks. Found by wiring this
+        # library onto an agent whose deep-dive runs on four threads.
+        self._lock = threading.Lock()
 
     def append(
         self,
@@ -112,11 +122,11 @@ class Ledger:
             "actions": [dict(a) for a in actions],
             "outcome": dict(outcome or {}),
         }
-        prev = self._last_chain()
-        chain = _chain_hash(body, prev)
-
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(_canonical({**body, "prev": prev, "chain": chain}) + "\n")
+        with self._lock:
+            prev = self._last_chain()
+            chain = _chain_hash(body, prev)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(_canonical({**body, "prev": prev, "chain": chain}) + "\n")
 
         return Decision(
             name=name,
