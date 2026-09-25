@@ -18,7 +18,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **48 tests.**
+[CADRAGE.md](CADRAGE.md). **59 tests.**
 
 | Piece | Status |
 |---|---|
@@ -27,9 +27,26 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | Hash-chained decision ledger, with `verify` | done |
 | Incident tracing — from an action back to the byte | done |
 | CLI: `verify`, `trace` | done |
+| `Recorder` — the three lines an agent author writes | done |
 | Tiered routing with a deterministic escalation signal | done |
 | Wiring the router to Nemotron on Nebius Token Factory | to come |
 | Web viewer | to come |
+
+## Recording a decision
+
+```python
+rec = Recorder("runs", agent_version=git_sha(), secrets=[os.environ["API_KEY"]])
+
+with rec.decision("summarise-page") as d:
+    page = d.evidence(source=url, payload=html)      # stored and cited before a model sees it
+    answer = d.ask(f"Summarise: {page.payload.decode()}")   # routed, tier and cost recorded
+    if answer.text.startswith("read-file"):
+        d.act("read-file", target="~/.ssh/id_rsa")    # the action, on the record
+```
+
+The block records itself. It records when the body raises, it records when the body does
+nothing, and it refuses to be nested rather than writing one record that describes two
+decisions. `examples/injected_page.py` runs the whole incident in thirty lines.
 
 ## What it does today
 
