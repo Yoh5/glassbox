@@ -7,7 +7,10 @@ still hold together, and what caused this action.
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.util
 from pathlib import Path
+from typing import Any, Callable
 
 from .evidence import EvidenceStore
 from .ledger import Ledger
@@ -34,6 +37,48 @@ def _verify(args: argparse.Namespace) -> int:
         print(f"FAIL  {problem}")
     print(f"\n{len(problems)} problem(s).")
     return 1
+
+
+def _load_rule(spec: str) -> Callable[..., Any]:
+    """`path/to/file.py:function` or `package.module:function`.
+
+    A rule lives in the agent's own code, so the replay has to reach into it
+    rather than the other way round. The error names what was not found: a
+    replay that quietly runs the wrong function is worse than one that refuses.
+    """
+    target, _, name = spec.rpartition(":")
+    if not target or not name:
+        raise ValueError(f"expected module:function or file.py:function, got {spec!r}")
+
+    if target.endswith(".py"):
+        module_spec = importlib.util.spec_from_file_location("glassbox_rule", target)
+        if module_spec is None or module_spec.loader is None:
+            raise ValueError(f"cannot load {target}")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(target)
+
+    if not hasattr(module, name):
+        raise ValueError(f"{target} has no function named {name}")
+    return getattr(module, name)
+
+
+def _replay(args: argparse.Namespace) -> int:
+    try:
+        rule = _load_rule(args.rule)
+    except (ValueError, ImportError, FileNotFoundError, SyntaxError) as error:
+        print(f"FAIL  {error}")
+        return 1
+
+    results = _ledger(args).replay_all(rule)
+    for result in results:
+        mark = "ok  " if result.matched else "FAIL"
+        print(f"{mark}  #{result.position}  {result.name}  {result.detail}")
+
+    matched = sum(1 for r in results if r.matched)
+    print(f"\n{matched}/{len(results)} decision(s) reproduced by this rule.")
+    return 0 if matched == len(results) else 1
 
 
 def _trace(args: argparse.Namespace) -> int:
@@ -69,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     trace.add_argument("--action", required=True)
     trace.add_argument("--evidence", type=Path, required=True)
     trace.set_defaults(run=_trace)
+
+    replay = sub.add_parser("replay", help="re-run a rule over the evidence each decision cited")
+    replay.add_argument("ledger", type=Path)
+    replay.add_argument("--rule", required=True, help="module:function or file.py:function")
+    replay.add_argument("--evidence", type=Path, required=True)
+    replay.set_defaults(run=_replay)
 
     args = parser.parse_args(argv)
     return int(args.run(args))

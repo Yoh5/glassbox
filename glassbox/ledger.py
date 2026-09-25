@@ -15,7 +15,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .evidence import EvidenceStore, UnknownEvidence
 
@@ -31,6 +31,25 @@ class Explained:
     decision: "Decision"
     position: int
     evidence: tuple[Any, ...]
+
+
+@dataclass(frozen=True)
+class Replay:
+    """Whether a decision would be taken again, on the evidence it was taken from.
+
+    Only meaningful for a deterministic decision function. A rule that calls a
+    model on the way through will disagree with itself for reasons that have
+    nothing to do with the record, and a replay that cannot fail proves
+    nothing — which is the argument for keeping the deciding part of an agent
+    free of model calls in the first place.
+    """
+
+    position: int
+    name: str
+    matched: bool
+    recorded: Mapping[str, Any]
+    recomputed: Mapping[str, Any] | None
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -163,6 +182,46 @@ class Ledger:
             position=position,
             evidence=tuple(self._store.get(i) for i in decision.evidence),
         )
+
+    def replay(self, position: int, decide: Callable[[Sequence[Any]], Mapping[str, Any]]) -> Replay:
+        """Re-runs `decide` over the evidence the decision cited, and compares.
+
+        A rule that raises is a mismatch, not a crash: a replay is an
+        inspection, and "this no longer even runs" is a finding worth
+        reporting rather than an error worth propagating.
+        """
+        explained = self.explain(position)
+        recorded = dict(explained.decision.outcome)
+
+        try:
+            recomputed = dict(decide(explained.evidence))
+        except Exception as error:  # noqa: BLE001 - the point is to report it
+            return Replay(
+                position=position,
+                name=explained.decision.name,
+                matched=False,
+                recorded=recorded,
+                recomputed=None,
+                detail=f"the rule no longer runs on this evidence: "
+                       f"{type(error).__name__}: {error}",
+            )
+
+        matched = _canonical(recomputed) == _canonical(recorded)
+        return Replay(
+            position=position,
+            name=explained.decision.name,
+            matched=matched,
+            recorded=recorded,
+            recomputed=recomputed,
+            detail=(
+                "the rule reproduces the recorded decision"
+                if matched
+                else f"recorded {_canonical(recorded)}, recomputed {_canonical(recomputed)}"
+            ),
+        )
+
+    def replay_all(self, decide: Callable[[Sequence[Any]], Mapping[str, Any]]) -> list[Replay]:
+        return [self.replay(position, decide) for position in range(1, len(self.records()) + 1)]
 
     def trace_action(self, kind: str) -> list[Explained]:
         """Every decision that took an action of this kind, evidence included.

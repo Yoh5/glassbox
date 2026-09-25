@@ -18,7 +18,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **59 tests.**
+[CADRAGE.md](CADRAGE.md). **69 tests.**
 
 | Piece | Status |
 |---|---|
@@ -26,8 +26,9 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | Content-addressed evidence store | done |
 | Hash-chained decision ledger, with `verify` | done |
 | Incident tracing — from an action back to the byte | done |
-| CLI: `verify`, `trace` | done |
+| CLI: `verify`, `trace`, `replay` | done |
 | `Recorder` — the three lines an agent author writes | done |
+| Deterministic replay of a recorded decision | done |
 | Tiered routing with a deterministic escalation signal | done |
 | Wiring the router to Nemotron on Nebius Token Factory | to come |
 | Web viewer | to come |
@@ -71,6 +72,25 @@ And if someone edits the ledger to make the incident disappear:
 ```
 FAIL  record 2 (summarise-page) has been edited since it was written
 ```
+
+## Would it decide the same thing again?
+
+```bash
+python -m glassbox replay runs/ledger.jsonl --evidence runs/evidence --rule agent/rules.py:decide
+# ok    #1  buy?  the rule reproduces the recorded decision
+# FAIL  #2  buy?  recorded {"action":"none",...}, recomputed {"action":"buy",...}
+#
+# 1/2 decision(s) reproduced by this rule.
+```
+
+The rule is handed the evidence the decision actually cited, in the order it cited it, and
+its answer is compared to what was recorded. A rule that no longer even runs is reported as
+a mismatch rather than crashing the inspection.
+
+This only means something for a **deterministic** decision function. A rule that calls a
+model on the way through will disagree with itself for reasons that have nothing to do with
+the record — which is the argument for keeping the deciding part of an agent free of model
+calls in the first place. The model reads; the code decides.
 
 ## Three design decisions worth stating
 
