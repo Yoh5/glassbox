@@ -1,7 +1,8 @@
 """What an auditor runs without reading a line of our code.
 
-Two commands, because two questions matter after an incident: does this ledger
-still hold together, and what caused this action.
+Four commands, for the four questions a record has to answer: does this ledger
+still hold together, what caused this action, would the rule decide the same
+thing again, and what did all of it cost.
 """
 
 from __future__ import annotations
@@ -81,6 +82,26 @@ def _replay(args: argparse.Namespace) -> int:
     return 0 if matched == len(results) else 1
 
 
+def _stats(args: argparse.Namespace) -> int:
+    stats = Ledger(args.ledger).stats()
+
+    print(f"decisions   {stats['decisions']}")
+    print(f"asks        {stats['asks']}")
+    for tier, count in sorted(stats["calls_by_tier"].items()):
+        print(f"  {tier:<9} {count} call(s)")
+    print(f"cost        ${stats['cost_usd']:.4f}")
+
+    share = stats["changed_share"]
+    if share is None:
+        print("escalation  nothing was escalated: the cheap tier answered every question")
+    else:
+        print(
+            f"escalation  {stats['escalated']} of {stats['asks']} ask(s), "
+            f"and the answer changed in {share * 100:.0f}% of them"
+        )
+    return 0
+
+
 def _trace(args: argparse.Namespace) -> int:
     hits = _ledger(args).trace_action(args.action)
     if not hits:
@@ -120,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
     replay.add_argument("--rule", required=True, help="module:function or file.py:function")
     replay.add_argument("--evidence", type=Path, required=True)
     replay.set_defaults(run=_replay)
+
+    stats = sub.add_parser("stats", help="what the run cost, and what escalating bought")
+    stats.add_argument("ledger", type=Path)
+    stats.add_argument("--evidence", type=Path, default=None)
+    stats.set_defaults(run=_stats)
 
     args = parser.parse_args(argv)
     return int(args.run(args))

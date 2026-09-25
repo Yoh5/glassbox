@@ -58,6 +58,10 @@ class Decision:
     started_at: str
     agent_version: str
     evidence: tuple[str, ...]
+    #: One entry per question put to a model: which tier answered, whether it
+    #: was escalated to, and whether escalating changed the answer. The raw
+    #: calls stay in `model_calls`; this is the level someone adds up later.
+    asks: tuple[Mapping[str, Any], ...]
     model_calls: tuple[Mapping[str, Any], ...]
     actions: tuple[Mapping[str, Any], ...]
     outcome: Mapping[str, Any]
@@ -93,6 +97,7 @@ class Ledger:
         started_at: str,
         agent_version: str,
         evidence: Sequence[str] = (),
+        asks: Sequence[Mapping[str, Any]] = (),
         model_calls: Sequence[Mapping[str, Any]] = (),
         actions: Sequence[Mapping[str, Any]] = (),
         outcome: Mapping[str, Any] | None = None,
@@ -102,6 +107,7 @@ class Ledger:
             "started_at": started_at,
             "agent_version": agent_version,
             "evidence": list(evidence),
+            "asks": [dict(a) for a in asks],
             "model_calls": [dict(c) for c in model_calls],
             "actions": [dict(a) for a in actions],
             "outcome": dict(outcome or {}),
@@ -117,6 +123,7 @@ class Ledger:
             started_at=started_at,
             agent_version=agent_version,
             evidence=tuple(evidence),
+            asks=tuple(dict(a) for a in asks),
             model_calls=tuple(dict(c) for c in model_calls),
             actions=tuple(dict(a) for a in actions),
             outcome=dict(outcome or {}),
@@ -139,7 +146,7 @@ class Ledger:
         for position, line in enumerate(self._lines(), start=1):
             raw = json.loads(line)
             body = {key: raw[key] for key in
-                    ("name", "started_at", "agent_version", "evidence",
+                    ("name", "started_at", "agent_version", "evidence", "asks",
                      "model_calls", "actions", "outcome")}
 
             if raw.get("prev") != prev:
@@ -235,6 +242,40 @@ class Ledger:
             if any(action.get("kind") == kind for action in record.actions)
         ]
 
+    def stats(self) -> dict[str, Any]:
+        """What the run cost, and what the expensive tier actually bought.
+
+        Added up from the record rather than reported at the time, so someone
+        who was not there can check the number instead of believing it.
+        """
+        calls_by_tier: dict[str, int] = {}
+        cost = 0.0
+        asks = escalated = changed = 0
+
+        for record in self.records():
+            for call in record.model_calls:
+                tier = str(call["tier"])
+                calls_by_tier[tier] = calls_by_tier.get(tier, 0) + 1
+                cost += float(call.get("cost_usd", 0.0))
+            for ask in record.asks:
+                asks += 1
+                if ask.get("escalated_from"):
+                    escalated += 1
+                    if ask.get("changed_on_escalation"):
+                        changed += 1
+
+        return {
+            "decisions": len(self.records()),
+            "asks": asks,
+            "escalated": escalated,
+            "changed_on_escalation": changed,
+            # None, not zero: "the expensive tier never changed anything" and
+            # "we never had to ask it" are different claims.
+            "changed_share": (changed / escalated) if escalated else None,
+            "calls_by_tier": calls_by_tier,
+            "cost_usd": cost,
+        }
+
     def _lines(self) -> list[str]:
         if not self.path.exists():
             return []
@@ -251,6 +292,7 @@ class Ledger:
             started_at=raw["started_at"],
             agent_version=raw["agent_version"],
             evidence=tuple(raw["evidence"]),
+            asks=tuple(raw.get("asks", ())),
             model_calls=tuple(raw["model_calls"]),
             actions=tuple(raw["actions"]),
             outcome=raw["outcome"],

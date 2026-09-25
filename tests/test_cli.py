@@ -101,3 +101,38 @@ def test_replay_says_which_rule_it_could_not_load(tmp_path, capsys):
                  "--rule", f"{root / 'rule.py'}:no_such_function"])
     assert code == 1
     assert "no_such_function" in capsys.readouterr().out
+
+
+def test_stats_prints_the_cost_and_what_escalating_bought(tmp_path, capsys):
+    from glassbox.ledger import Ledger
+
+    led = Ledger(tmp_path / "ledger.jsonl")
+    led.append(name="a", started_at="2026-10-14T09:31:07Z", agent_version="v1",
+               asks=({"tier": "nano", "escalated_from": None, "changed_on_escalation": None},),
+               model_calls=({"tier": "nano", "cost_usd": 0.0001},
+                            {"tier": "nano", "cost_usd": 0.0001}))
+    led.append(name="b", started_at="2026-10-14T09:32:07Z", agent_version="v1",
+               asks=({"tier": "super", "escalated_from": "nano",
+                      "changed_on_escalation": False},),
+               model_calls=({"tier": "nano", "cost_usd": 0.0001},
+                            {"tier": "super", "cost_usd": 0.001}))
+
+    code = main(["stats", str(tmp_path / "ledger.jsonl")])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "nano" in out and "super" in out
+    assert "0%" in out  # one escalation, nothing changed by it
+
+
+def test_stats_says_nothing_was_escalated_rather_than_printing_zero(tmp_path, capsys):
+    from glassbox.ledger import Ledger
+
+    led = Ledger(tmp_path / "ledger.jsonl")
+    led.append(name="a", started_at="2026-10-14T09:31:07Z", agent_version="v1",
+               asks=({"tier": "nano", "escalated_from": None, "changed_on_escalation": None},),
+               model_calls=({"tier": "nano", "cost_usd": 0.0001},))
+
+    main(["stats", str(tmp_path / "ledger.jsonl")])
+
+    assert "nothing was escalated" in capsys.readouterr().out.lower()

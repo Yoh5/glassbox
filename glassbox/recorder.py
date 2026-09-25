@@ -42,6 +42,7 @@ class DecisionContext:
         self.name = name
         self.started_at = started_at
         self._evidence: list[str] = []
+        self._asks: list[Mapping[str, Any]] = []
         self._model_calls: list[Mapping[str, Any]] = []
         self._actions: list[Mapping[str, Any]] = []
         self._outcome: dict[str, Any] | None = None
@@ -64,6 +65,15 @@ class DecisionContext:
                 "before asking a model, rather than making a call nothing records"
             )
         answer = self._recorder.router.ask(prompt, floor=floor)
+        self._asks.append(
+            {
+                "tier": answer.tier,
+                "escalated_from": answer.escalated_from,
+                "changed_on_escalation": answer.changed_on_escalation,
+                "cost_usd": answer.cost_usd,
+                "calls": len(answer.calls),
+            }
+        )
         for call in answer.calls:
             self._model_calls.append(
                 {"tier": call["tier"], "cost_usd": call["cost_usd"]}
@@ -136,6 +146,7 @@ class Recorder:
             started_at=context.started_at,
             agent_version=self.agent_version,
             evidence=context._evidence,
+            asks=context._asks,
             model_calls=context._model_calls,
             actions=context._actions,
             outcome=context._resolved_outcome(error),

@@ -18,7 +18,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **69 tests.**
+[CADRAGE.md](CADRAGE.md). **78 tests.**
 
 | Piece | Status |
 |---|---|
@@ -26,7 +26,7 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | Content-addressed evidence store | done |
 | Hash-chained decision ledger, with `verify` | done |
 | Incident tracing — from an action back to the byte | done |
-| CLI: `verify`, `trace`, `replay` | done |
+| CLI: `verify`, `trace`, `replay`, `stats` | done |
 | `Recorder` — the three lines an agent author writes | done |
 | Deterministic replay of a recorded decision | done |
 | Tiered routing with a deterministic escalation signal | done |
@@ -91,6 +91,24 @@ This only means something for a **deterministic** decision function. A rule that
 model on the way through will disagree with itself for reasons that have nothing to do with
 the record — which is the argument for keeping the deciding part of an agent free of model
 calls in the first place. The model reads; the code decides.
+
+## What it cost, and what the expensive tier bought
+
+```bash
+python -m glassbox stats runs/ledger.jsonl
+# decisions   412
+# asks        412
+#   nano      824 call(s)
+#   super     92 call(s)
+#   ultra     14 call(s)
+# cost        $0.3184
+# escalation  53 of 412 ask(s), and the answer changed in 19% of them
+```
+
+That last line is the one worth having. It is added up from the record rather than reported
+at the time, so someone who was not there can check the number instead of believing it —
+and when nothing was escalated it says so, instead of printing a 0% that would read as "the
+expensive tier never helps".
 
 ## Three design decisions worth stating
 
