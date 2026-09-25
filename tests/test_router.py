@@ -138,3 +138,34 @@ def test_no_escalation_means_no_share_to_report_rather_than_zero():
     router.ask("one")
 
     assert router.stats()["changed_share"] is None
+
+
+def test_capitalisation_is_not_a_disagreement():
+    # Measured on a real run: "Yellow" and "yellow" escalated a question about
+    # the colour of a banana, at twelve times the price, for nothing.
+    router = Router(scripted({"nano": ["Yellow", "yellow"]}))
+
+    answer = router.ask("what colour is a banana")
+
+    assert answer.tier == "nano"
+    assert answer.escalated_from is None
+
+
+def test_surrounding_punctuation_is_not_a_disagreement_either():
+    router = Router(scripted({"nano": ["yes.", "Yes"]}))
+
+    assert router.ask("is 17 prime").escalated_from is None
+
+
+def test_a_real_difference_still_escalates_after_normalising():
+    router = Router(scripted({"nano": ["yes", "no"], "super": ["no", "no"]}))
+
+    assert router.ask("is 1 prime").tier == "super"
+
+
+def test_the_answer_kept_is_the_one_the_model_actually_wrote():
+    # Normalising is for comparing, never for recording: the ledger must hold
+    # what the model said, not our tidied version of it.
+    router = Router(scripted({"nano": ["Yellow", "yellow"]}))
+
+    assert router.ask("what colour").text == "Yellow"

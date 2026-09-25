@@ -18,7 +18,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **78 tests.**
+[CADRAGE.md](CADRAGE.md). **94 tests.**
 
 | Piece | Status |
 |---|---|
@@ -30,7 +30,7 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | `Recorder` — the three lines an agent author writes | done |
 | Deterministic replay of a recorded decision | done |
 | Tiered routing with a deterministic escalation signal | done |
-| Wiring the router to Nemotron on Nebius Token Factory | to come |
+| Nemotron on Nebius Token Factory, priced from real usage | done |
 | Web viewer | to come |
 
 ## Recording a decision
@@ -91,6 +91,34 @@ This only means something for a **deterministic** decision function. A rule that
 model on the way through will disagree with itself for reasons that have nothing to do with
 the record — which is the argument for keeping the deciding part of an agent free of model
 calls in the first place. The model reads; the code decides.
+
+## Measured on real models
+
+Twelve questions of rising ambiguity, against Nemotron 3 Nano, Super and Ultra on Nebius
+Token Factory. `examples/measure_escalation.py` runs it; the numbers below are read off the
+ledger afterwards with `glassbox stats`, not printed at the time.
+
+```
+asks        12          nano   24 call(s)
+cost        $0.0029     super   4 call(s)
+escalation  2 of 12 ask(s), and the answer changed in 50% of them
+```
+
+The signal behaved: *Paris*, *17 is prime*, *seven continents* were answered by the 30B
+model alone. *Is a hot dog a sandwich* went all the way to the 550B model. That is the
+whole idea working — the expensive tier is reached by the contested questions and by
+nothing else.
+
+**And the first run found a bug in the signal.** "Yellow" and "yellow" counted as a
+disagreement, and sent a question about the colour of a banana to a model that costs twelve
+times more, which then confirmed the same answer. Comparison is now normalised for case and
+trailing punctuation — the *comparison* only; the recorded answer is always what the model
+actually wrote. On the same twelve questions the escalations fell from 5 to 2 and the cost
+from $0.0048 to $0.0029.
+
+Two runs at a non-zero temperature are not a controlled experiment, and part of that gap is
+sampling noise rather than the fix. The banana case is certain; the size of the saving is
+not. The numbers are published as measured.
 
 ## What it cost, and what the expensive tier bought
 

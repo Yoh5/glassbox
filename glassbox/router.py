@@ -15,6 +15,7 @@ when it makes the expensive tier look unnecessary.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
@@ -22,6 +23,17 @@ CallFn = Callable[[str, str], tuple[str, float]]
 """(tier, prompt) -> (answer, cost in USD)."""
 
 DEFAULT_TIERS = ("nano", "super", "ultra")
+
+
+def default_normalise(text: str) -> str:
+    """What counts as "the same answer" when two samples are compared.
+
+    Case and trailing punctuation are not disagreements. Measured on a real
+    run: "Yellow" and "yellow" escalated a question about the colour of a
+    banana to a model that costs twelve times more, and confirmed the same
+    answer. The comparison is normalised; the recorded answer never is.
+    """
+    return re.sub(r"[\s.!,;:]+$", "", text.strip().casefold())
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,7 @@ class Router:
         tiers: Sequence[str] = DEFAULT_TIERS,
         samples: int = 2,
         validate: Callable[[str], bool] | None = None,
+        normalise: Callable[[str], str] = default_normalise,
     ) -> None:
         if samples < 2:
             raise ValueError("samples must be at least 2: one sample cannot disagree with itself")
@@ -62,6 +75,7 @@ class Router:
         self._tiers = tuple(tiers)
         self._samples = samples
         self._validate = validate
+        self._normalise = normalise
         self._tally = _Tally()
 
     def ask(self, prompt: str, *, floor: str | None = None) -> Answer:
@@ -80,7 +94,7 @@ class Router:
                 cost += call_cost
                 calls.append({"tier": tier, "cost_usd": call_cost, "answer": text})
 
-            agreed = len(set(answers)) == 1
+            agreed = len({self._normalise(a) for a in answers}) == 1
             accepted = answers[0]
             valid = self._validate(accepted) if self._validate else True
             last = index == len(self._tiers) - 1
@@ -94,7 +108,9 @@ class Router:
                         calls=tuple(calls),
                         escalated_from=previous_tier,
                         changed_on_escalation=(
-                            None if previous is None else accepted != previous
+                            None
+                            if previous is None
+                            else self._normalise(accepted) != self._normalise(previous)
                         ),
                         unresolved=last and not (agreed and valid),
                     )
