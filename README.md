@@ -18,7 +18,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **37 tests.**
+[CADRAGE.md](CADRAGE.md). **48 tests.**
 
 | Piece | Status |
 |---|---|
@@ -27,7 +27,8 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | Hash-chained decision ledger, with `verify` | done |
 | Incident tracing — from an action back to the byte | done |
 | CLI: `verify`, `trace` | done |
-| Nemotron Nano/Super/Ultra routing, measured | to come |
+| Tiered routing with a deterministic escalation signal | done |
+| Wiring the router to Nemotron on Nebius Token Factory | to come |
 | Web viewer | to come |
 
 ## What it does today
@@ -64,6 +65,14 @@ text was redacted says so.
 **An id addresses an observation, not a payload.** The same bytes fetched from two sources,
 or from one source at two times, are two different facts about the world. The payload digest
 travels alongside, so identical bytes remain visible as identical.
+
+**Escalation runs on a signal, not on a feeling.** Asking a model how confident it is
+produces a number that correlates with fluency, not correctness. The router samples the
+cheap tier twice and escalates when the two answers disagree: one extra cheap call, no trust
+in the model's self-assessment. What comes out is the number nobody publishes — of the
+questions that were escalated, how many actually got a different answer. Reported as `None`
+rather than `0` when nothing was escalated, because "the big model never helped" and "we
+never had to ask it" are different claims.
 
 **One record per decision, and one per refusal.** A ledger that only fills up when the agent
 acts cannot explain a quiet afternoon.
