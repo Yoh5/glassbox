@@ -14,6 +14,11 @@ glassbox = "glassbox.cli:main"
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+# Explicit, because setuptools' flat-layout discovery otherwise mistakes the
+# recorded example runs for a package and refuses to build.
+[tool.setuptools]
+packages = ["glassbox"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
