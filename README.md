@@ -1,5 +1,7 @@
 # Glass Box
 
+[![ci](https://github.com/Yoh5/glassbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Yoh5/glassbox/actions/workflows/ci.yml)
+
 **Your agents make decisions. This one tells you which, why, on what information, and what it
 cost. And if someone rewrites the history, it shows.**
 
@@ -177,5 +179,12 @@ stated rather than hidden.
 ## Tests
 
 ```bash
+pip install -e ".[dev]"
 python -m pytest -q
 ```
+
+CI runs that on Python 3.11, 3.12 and 3.13, then runs `verify` and `stats` on the example
+ledger from the command line — an auditor's first move is a CLI call, not an import. No step
+needs a credential: the Nebius tests drive an injected `post` function rather than the
+network, and the example that calls real models is deliberately left out, because a workflow
+that needs a key to pass fails for everyone who forks the repository.

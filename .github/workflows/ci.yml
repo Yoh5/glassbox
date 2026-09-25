@@ -1,0 +1,44 @@
+# Nothing here needs a credential. The Nebius tests drive an injected `post`
+# function rather than the network, and the example that calls real Nemotron
+# models is deliberately not run: a workflow that needs a key to pass is a
+# workflow that fails for everyone who forks the repository.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is what pyproject claims to support, so it is what CI proves.
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # An editable install, not a path hack: it is how someone else will
+      # actually consume this, and it is the step that caught the packaging
+      # bug the first time.
+      - run: pip install -e ".[dev]"
+
+      - run: python -m pytest -q
+
+      # The library must also work from the command line, on the example
+      # ledger committed in runs/ -- an auditor's first move is a CLI call,
+      # not an import.
+      # No --evidence here on purpose: that run asked models and cited no
+      # stored evidence, so pointing at an evidence store would create an
+      # empty one and prove nothing.
+      - name: The commands an auditor runs
+        run: |
+          python -m glassbox verify runs/escalation/ledger.jsonl
+          python -m glassbox stats runs/escalation/ledger.jsonl
