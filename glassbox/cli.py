@@ -1,8 +1,9 @@
 """What an auditor runs without reading a line of our code.
 
-Four commands, for the four questions a record has to answer: does this ledger
-still hold together, what caused this action, would the rule decide the same
-thing again, and what did all of it cost.
+Five commands, for the four questions a record has to answer -- does this
+ledger still hold together, what caused this action, would the rule decide the
+same thing again, what did all of it cost -- and one that puts the same four
+answers on a page, for the reader who will not type any of this.
 """
 
 from __future__ import annotations
@@ -131,6 +132,14 @@ def _trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def _serve(args: argparse.Namespace) -> int:
+    # Imported here so the four read-only commands never pull in a socket.
+    from .viewer import serve
+
+    serve(_ledger(args), host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="glassbox", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -156,6 +165,16 @@ def main(argv: list[str] | None = None) -> int:
     stats.add_argument("ledger", type=Path)
     stats.add_argument("--evidence", type=Path, default=None)
     stats.set_defaults(run=_stats)
+
+    view = sub.add_parser("serve", help="browse the ledger in a local, read-only page")
+    view.add_argument("ledger", type=Path)
+    view.add_argument("--evidence", type=Path, default=None)
+    view.add_argument("--port", type=int, default=8000)
+    # Loopback by default. A decision ledger holds what an agent read, what it
+    # was told and what it did; putting that on a network is a choice someone
+    # has to make out loud.
+    view.add_argument("--host", default="127.0.0.1")
+    view.set_defaults(run=_serve)
 
     args = parser.parse_args(argv)
     return int(args.run(args))

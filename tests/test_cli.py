@@ -191,3 +191,28 @@ def test_replay_on_an_unstamped_record_says_it_assumed_the_rule(tmp_path, capsys
                  "--rule", f"{root / 'rule.py'}:decide"])
     assert code == 0
     assert "assumed rule" in capsys.readouterr().out
+
+
+def test_serve_is_offered_and_defaults_to_loopback(tmp_path, capsys):
+    """The one command that opens a socket: it must not do so on 0.0.0.0."""
+    import argparse
+
+    from glassbox.cli import main as cli_main
+
+    parser_error = {}
+
+    def fake_serve(ledger, *, host, port):
+        parser_error["host"] = host
+        parser_error["port"] = port
+
+    import glassbox.viewer
+    original = glassbox.viewer.serve
+    glassbox.viewer.serve = fake_serve
+    try:
+        root = with_a_price(tmp_path)
+        code = cli_main(["serve", str(root / "ledger.jsonl"), "--evidence", str(root / "evidence")])
+    finally:
+        glassbox.viewer.serve = original
+
+    assert code == 0
+    assert parser_error == {"host": "127.0.0.1", "port": 8000}

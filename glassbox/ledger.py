@@ -138,6 +138,16 @@ class Ledger:
         # library onto an agent whose deep-dive runs on four threads.
         self._lock = threading.Lock()
 
+    @property
+    def store(self) -> EvidenceStore | None:
+        """The evidence store this ledger resolves citations against, if any.
+
+        A ledger opened without one still reads: the decisions are in the file.
+        What it cannot do is show what they were standing on, and a reader is
+        told that rather than shown an empty section.
+        """
+        return self._store
+
     def append(
         self,
         *,
