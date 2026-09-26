@@ -1,5 +1,7 @@
 """The command line: what an auditor runs without reading any of our code."""
 
+import importlib.util
+
 from glassbox.cli import main
 from glassbox.evidence import EvidenceStore
 from glassbox.ledger import Ledger
@@ -61,6 +63,10 @@ def decide(evidence):
 
 def always_buy(evidence):
     return {"action": "buy", "reason": "cheap enough"}
+
+
+def too_expensive_always(evidence):
+    return {"action": "none", "reason": "too expensive"}
 '''
 
 
@@ -136,3 +142,52 @@ def test_stats_says_nothing_was_escalated_rather_than_printing_zero(tmp_path, ca
     main(["stats", str(tmp_path / "ledger.jsonl")])
 
     assert "nothing was escalated" in capsys.readouterr().out.lower()
+
+
+def with_a_stamped_price(tmp_path):
+    """The same ledger, but the decision names the rule that took it."""
+    from glassbox.evidence import EvidenceStore
+    from glassbox.ledger import Ledger
+    from glassbox.rule import rule_digest
+
+    (tmp_path / "rule.py").write_text(RULE, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("stamped_rule", tmp_path / "rule.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    store = EvidenceStore(tmp_path / "evidence")
+    led = Ledger(tmp_path / "ledger.jsonl", store=store)
+    item = store.put(source="https://example.org/b", payload=b"price=900",
+                     fetched_at="2026-10-14T09:31:00Z")
+    led.append(name="buy?", started_at="2026-10-14T09:31:05Z", agent_version="v1",
+               evidence=(item.id,), outcome={"action": "none", "reason": "too expensive"},
+               rule_digest=rule_digest(module.decide))
+    return tmp_path
+
+
+def test_replay_against_the_recorded_rule_says_nothing_extra(tmp_path, capsys):
+    root = with_a_stamped_price(tmp_path)
+    code = main(["replay", str(root / "ledger.jsonl"), "--evidence", str(root / "evidence"),
+                 "--rule", f"{root / 'rule.py'}:decide"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "not the rule that ran" not in out and "assumed rule" not in out
+
+
+def test_replay_against_another_rule_fails_even_when_every_decision_reproduces(tmp_path, capsys):
+    """The vacuous-gate case: all green, checked against code that never ran."""
+    root = with_a_stamped_price(tmp_path)
+    code = main(["replay", str(root / "ledger.jsonl"), "--evidence", str(root / "evidence"),
+                 "--rule", f"{root / 'rule.py'}:too_expensive_always"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "1/1" in out                      # every decision did reproduce
+    assert "not the rule that ran" in out    # and it still is not a pass
+
+
+def test_replay_on_an_unstamped_record_says_it_assumed_the_rule(tmp_path, capsys):
+    root = with_a_price(tmp_path)
+    code = main(["replay", str(root / "ledger.jsonl"), "--evidence", str(root / "evidence"),
+                 "--rule", f"{root / 'rule.py'}:decide"])
+    assert code == 0
+    assert "assumed rule" in capsys.readouterr().out

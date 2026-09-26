@@ -20,7 +20,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **98 tests.**
+[CADRAGE.md](CADRAGE.md). **111 tests.**
 
 | Piece | Status |
 |---|---|
@@ -31,6 +31,7 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | CLI: `verify`, `trace`, `replay`, `stats` | done |
 | `Recorder` — the three lines an agent author writes | done |
 | Deterministic replay of a recorded decision | done |
+| Rule identity — "is that even the code that ran?" | done |
 | Tiered routing with a deterministic escalation signal | done |
 | Nemotron on Nebius Token Factory, priced from real usage | done |
 | Web viewer | to come |
@@ -38,7 +39,7 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 ## Recording a decision
 
 ```python
-rec = Recorder("runs", agent_version=git_sha(), secrets=[os.environ["API_KEY"]])
+rec = Recorder("runs", agent_version=git_sha(), rule=decide, secrets=[os.environ["API_KEY"]])
 
 with rec.decision("summarise-page") as d:
     page = d.evidence(source=url, payload=html)      # stored and cited before a model sees it
@@ -88,6 +89,28 @@ python -m glassbox replay runs/ledger.jsonl --evidence runs/evidence --rule agen
 The rule is handed the evidence the decision actually cited, in the order it cited it, and
 its answer is compared to what was recorded. A rule that no longer even runs is reported as
 a mismatch rather than crashing the inspection.
+
+**And it says whether that is even the rule that ran.** A decision records the digest of its
+decision function, so a replay can tell two opposite findings apart:
+
+```
+ok    #1  buy?  the rule reproduces the recorded decision -- but this is not the rule that ran
+
+1/1 decision(s) reproduced by this rule.
+1 of them were stamped with a different rule: this is not the code that decided them.
+```
+
+Every answer lined up, and it still exits non-zero — a replay against code that never ran is
+a green light for a check nobody performed. Without this, an edited rule produced a mismatch
+that read as *the agent decided wrongly* when the truth was *you replayed with the wrong
+code*. A record that names no rule is replayed `(no rule recorded: replayed against an
+assumed rule)` rather than being called a pass.
+
+The digest covers the source text of the decision function itself, not the helpers it calls
+or the library versions underneath it. A digest that matches is evidence; a digest that
+differs is certain. And the field is optional, hashed into the chain only when present, so
+adding it left every record already written exactly where it was — a new field that
+invalidated old records would be indistinguishable from tampering.
 
 This only means something for a **deterministic** decision function. A rule that calls a
 model on the way through will disagree with itself for reasons that have nothing to do with

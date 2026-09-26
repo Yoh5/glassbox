@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .evidence import EvidenceStore, UnknownEvidence
+from .rule import rule_digest
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,12 @@ class Replay:
     recorded: Mapping[str, Any]
     recomputed: Mapping[str, Any] | None
     detail: str
+    #: True when the replayed rule is the one the decision was stamped with,
+    #: False when it is demonstrably another, and None when the decision
+    #: carries no rule at all. The three are different findings: "it decided
+    #: this again", "that is not the code that ran", and "nobody recorded
+    #: which code ran, so this was checked against an assumption".
+    same_rule: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,28 @@ class Decision:
     outcome: Mapping[str, Any]
     prev: str | None
     chain: str = field(compare=False)
+    #: Digest of the decision function, when the agent declared one. Optional
+    #: because records written before the field existed do not have it, and
+    #: inventing it for them would be a claim nobody can check.
+    rule_digest: str | None = None
+
+
+#: The fields of a record that are hashed into its chain. `rule_digest` is
+#: optional: a record written before it existed does not carry the key at all,
+#: and since only the keys actually present are hashed, adding the field left
+#: every chain already on disk exactly where it was. A new field that
+#: invalidated old records would be indistinguishable from tampering.
+_BODY_KEYS = (
+    "name",
+    "started_at",
+    "agent_version",
+    "evidence",
+    "asks",
+    "model_calls",
+    "actions",
+    "outcome",
+    "rule_digest",
+)
 
 
 def _canonical(body: Mapping[str, Any]) -> str:
@@ -77,6 +106,15 @@ def _canonical(body: Mapping[str, Any]) -> str:
 def _chain_hash(body: Mapping[str, Any], prev: str | None) -> str:
     material = (prev or "") + _canonical(body)
     return "sha256:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _rule_note(same_rule: bool | None) -> str:
+    """The clause that keeps a replay from accusing the wrong party."""
+    if same_rule is True:
+        return ""
+    if same_rule is False:
+        return " -- but this is not the rule that ran"
+    return " (no rule recorded: replayed against an assumed rule)"
 
 
 class Ledger:
@@ -111,8 +149,9 @@ class Ledger:
         model_calls: Sequence[Mapping[str, Any]] = (),
         actions: Sequence[Mapping[str, Any]] = (),
         outcome: Mapping[str, Any] | None = None,
+        rule_digest: str | None = None,
     ) -> Decision:
-        body = {
+        body: dict[str, Any] = {
             "name": name,
             "started_at": started_at,
             "agent_version": agent_version,
@@ -122,6 +161,8 @@ class Ledger:
             "actions": [dict(a) for a in actions],
             "outcome": dict(outcome or {}),
         }
+        if rule_digest is not None:
+            body["rule_digest"] = rule_digest
         with self._lock:
             prev = self._last_chain()
             chain = _chain_hash(body, prev)
@@ -139,6 +180,7 @@ class Ledger:
             outcome=dict(outcome or {}),
             prev=prev,
             chain=chain,
+            rule_digest=rule_digest,
         )
 
     def records(self) -> list[Decision]:
@@ -155,9 +197,7 @@ class Ledger:
 
         for position, line in enumerate(self._lines(), start=1):
             raw = json.loads(line)
-            body = {key: raw[key] for key in
-                    ("name", "started_at", "agent_version", "evidence", "asks",
-                     "model_calls", "actions", "outcome")}
+            body = {key: raw[key] for key in _BODY_KEYS if key in raw}
 
             if raw.get("prev") != prev:
                 problems.append(
@@ -206,9 +246,16 @@ class Ledger:
         A rule that raises is a mismatch, not a crash: a replay is an
         inspection, and "this no longer even runs" is a finding worth
         reporting rather than an error worth propagating.
+
+        It also reports whether the rule it was handed is the one the decision
+        was stamped with. Without that, an edited rule produces a mismatch
+        that reads as "the agent decided wrongly" when the truth is "you
+        replayed with the wrong code" — and those are opposite findings.
         """
         explained = self.explain(position)
         recorded = dict(explained.decision.outcome)
+        same_rule = self._same_rule(explained.decision, decide)
+        note = _rule_note(same_rule)
 
         try:
             recomputed = dict(decide(explained.evidence))
@@ -219,8 +266,9 @@ class Ledger:
                 matched=False,
                 recorded=recorded,
                 recomputed=None,
+                same_rule=same_rule,
                 detail=f"the rule no longer runs on this evidence: "
-                       f"{type(error).__name__}: {error}",
+                       f"{type(error).__name__}: {error}{note}",
             )
 
         matched = _canonical(recomputed) == _canonical(recorded)
@@ -230,12 +278,30 @@ class Ledger:
             matched=matched,
             recorded=recorded,
             recomputed=recomputed,
+            same_rule=same_rule,
             detail=(
-                "the rule reproduces the recorded decision"
+                f"the rule reproduces the recorded decision{note}"
                 if matched
-                else f"recorded {_canonical(recorded)}, recomputed {_canonical(recomputed)}"
+                else f"recorded {_canonical(recorded)}, "
+                     f"recomputed {_canonical(recomputed)}{note}"
             ),
         )
+
+    @staticmethod
+    def _same_rule(decision: "Decision", decide: Callable[..., Any]) -> bool | None:
+        """None when the decision names no rule, or the replayed one has no source.
+
+        A rule whose source cannot be read (a built-in, a C extension, a
+        lambda typed into a REPL) leaves the question unanswered rather than
+        answered wrongly: "I could not tell" and "it is a different rule" are
+        not the same statement.
+        """
+        if decision.rule_digest is None:
+            return None
+        try:
+            return rule_digest(decide) == decision.rule_digest
+        except ValueError:
+            return None
 
     def replay_all(self, decide: Callable[[Sequence[Any]], Mapping[str, Any]]) -> list[Replay]:
         return [self.replay(position, decide) for position in range(1, len(self.records()) + 1)]
@@ -308,4 +374,5 @@ class Ledger:
             outcome=raw["outcome"],
             prev=raw["prev"],
             chain=raw["chain"],
+            rule_digest=raw.get("rule_digest"),
         )

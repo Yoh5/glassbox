@@ -79,6 +79,16 @@ def _replay(args: argparse.Namespace) -> int:
 
     matched = sum(1 for r in results if r.matched)
     print(f"\n{matched}/{len(results)} decision(s) reproduced by this rule.")
+
+    # A replay where every decision reproduces, run against code that is
+    # demonstrably not the code that ran, is a green light for a check nobody
+    # performed. It exits non-zero however well the answers lined up.
+    wrong_rule = sum(1 for r in results if r.same_rule is False)
+    if wrong_rule:
+        print(f"{wrong_rule} of them were stamped with a different rule: "
+              "this is not the code that decided them.")
+        return 1
+
     return 0 if matched == len(results) else 1
 
 

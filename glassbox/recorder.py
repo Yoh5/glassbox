@@ -28,6 +28,7 @@ from .evidence import Evidence, EvidenceStore
 from .ledger import Ledger
 from .redact import Redactor
 from .router import Answer, Router
+from .rule import rule_digest
 
 
 def _now() -> str:
@@ -114,12 +115,18 @@ class Recorder:
         agent_version: str,
         secrets: Iterable[str | None] = (),
         router: Router | None = None,
+        rule: Callable[..., Any] | None = None,
         clock: Callable[[], str] | None = None,
     ) -> None:
         self.root = Path(root)
         self.agent_version = agent_version
         self.clock = clock or _now
         self.router = router
+        # Stamped on every record, so a replay can tell "the agent decided
+        # wrongly" from "you replayed with the wrong code". Digested once, at
+        # construction, so a rule edited mid-run is caught here rather than
+        # silently stamping two different digests onto one run.
+        self.rule_digest = rule_digest(rule) if rule is not None else None
         self._redactor = Redactor(secrets)
         self.store = EvidenceStore(self.root / "evidence", redactor=self._redactor)
         self.ledger = Ledger(self.root / "ledger.jsonl", store=self.store)
@@ -150,5 +157,6 @@ class Recorder:
             model_calls=context._model_calls,
             actions=context._actions,
             outcome=context._resolved_outcome(error),
+            rule_digest=self.rule_digest,
         )
         self._open = None
