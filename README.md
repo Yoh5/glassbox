@@ -54,7 +54,15 @@ decisions. `examples/injected_page.py` runs the whole incident in thirty lines.
 
 ## What it does today
 
+`runs/ledger.jsonl` below is what `examples/injected_page.py` writes; it prints the two
+commands with the paths filled in, so run it first and paste. (The shipped ledger from the
+measured run is at `runs/escalation/ledger.jsonl`, and `verify` works on it as it stands.)
+
 ```bash
+python examples/injected_page.py
+# ledger:   /tmp/glassbox-xxxx/ledger.jsonl
+# verify:   the chain holds
+
 python -m glassbox verify runs/ledger.jsonl --evidence runs/evidence
 # 2 decision(s) verified: the chain holds.
 
@@ -146,6 +154,21 @@ model on the way through will disagree with itself for reasons that have nothing
 the record — which is the argument for keeping the deciding part of an agent free of model
 calls in the first place. The model reads; the code decides.
 
+## Before you reproduce any of it
+
+```bash
+python -m glassbox models
+# nano    nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B         available
+# super   nvidia/nemotron-3-super-120b-a12b             available
+# ultra   nvidia/Nemotron-3-Ultra-550b-a55b             available
+```
+
+Model ids get renamed and withdrawn, and two of these three differ from what the
+product pages display. When one is gone the router does not stop: it fails on that
+tier, and the escalation numbers below quietly become a measurement of something
+else, under the same heading. So this exits non-zero and names the missing tier,
+rather than letting a run look finished.
+
 ## Measured on real models
 
 Twelve questions of rising ambiguity, against Nemotron 3 Nano, Super and Ultra on Nebius
@@ -154,7 +177,8 @@ ledger afterwards with `glassbox stats`, not printed at the time.
 
 ```
 asks        12          nano   24 call(s)
-cost        $0.0029     super   4 call(s)
+cost        $0.0029     super    4 call(s)
+                        ultra    2 call(s)
 escalation  2 of 12 ask(s), and the answer changed in 50% of them
 ```
 
@@ -177,7 +201,7 @@ not. The numbers are published as measured.
 ## What it cost, and what the expensive tier bought
 
 ```bash
-python -m glassbox stats runs/ledger.jsonl
+python -m glassbox stats runs/ledger.jsonl    # or runs/escalation/ledger.jsonl, shipped
 # decisions   412
 # asks        412
 #   nano      824 call(s)
@@ -191,6 +215,22 @@ That last line is the one worth having. It is added up from the record rather th
 at the time, so someone who was not there can check the number instead of believing it —
 and when nothing was escalated it says so, instead of printing a 0% that would read as "the
 expensive tier never helps".
+
+## Nothing is not a passing grade
+
+The cheapest attack on a hash-chained ledger is not to alter it. Altering it breaks the
+chain, and that is the one thing this tool always catches. The cheap attack is to **delete**
+it — and `verify` used to answer, on a path that did not exist:
+
+```
+0 decision(s) verified: the chain holds.     (exit 0)
+```
+
+A nightly audit would have gone green through the whole incident, and the same output
+greeted anyone who mistyped the path — which is how most people meet a tool for the first
+time. Every command that reads a ledger now exits 2 on a missing file and names the path,
+and `verify` refuses to call an empty ledger a pass: it cannot tell a run that has not
+started from one whose record is gone, so it says both.
 
 ## Three design decisions worth stating
 

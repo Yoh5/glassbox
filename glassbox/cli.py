@@ -4,6 +4,13 @@ Five commands, for the four questions a record has to answer -- does this
 ledger still hold together, what caused this action, would the rule decide the
 same thing again, what did all of it cost -- and one that puts the same four
 answers on a page, for the reader who will not type any of this.
+
+A sixth answers the question that comes before all of them, and only when
+someone tries to reproduce the run: **are the three tiers this tool routes
+between actually on this account?** Model ids get renamed and withdrawn. When
+one of ours is gone, the router does not stop -- it fails on that tier and the
+measurement quietly becomes a measurement of something else. That is the worst
+way for a number to be wrong, so it gets a command that exits non-zero.
 """
 
 from __future__ import annotations
@@ -14,8 +21,11 @@ import importlib.util
 from pathlib import Path
 from typing import Any, Callable
 
+import os
+
 from .evidence import EvidenceStore
 from .ledger import Ledger
+from .nebius import DEFAULT_BASE_URL, TIERS, list_models
 
 SNIPPET = 160
 
@@ -25,14 +35,84 @@ def _ledger(args: argparse.Namespace) -> Ledger:
     return Ledger(args.ledger, store=store)
 
 
+def _models(args: argparse.Namespace) -> int:
+    key = os.environ.get(args.api_key_env, "").strip()
+    if not key:
+        print(f"{args.api_key_env} is not set: nothing to ask.")
+        return 2
+
+    try:
+        available = set(list_models(key, args.base_url))
+    except Exception as why:  # noqa: BLE001 - every failure reads the same here
+        print(f"could not reach {args.base_url}: {why}")
+        return 2
+
+    missing = []
+    for name, tier in TIERS.items():
+        there = tier.model_id in available
+        print(f"{name:<7} {tier.model_id:<45} {'available' if there else 'MISSING'}")
+        if not there:
+            missing.append(name)
+
+    print(f"\n{len(available)} model(s) on this account.")
+    if missing:
+        # Naming them is the point: a fallback nobody notices turns a
+        # measurement into a different measurement with the same title.
+        print(
+            f"{', '.join(missing)} not among them. Routing would fail on that "
+            "tier, and the escalation numbers would be measuring something "
+            "else. Check the ids in glassbox/nebius.py against the console."
+        )
+    return 1 if missing else 0
+
+
+def _absent(path: Path, what: str) -> str:
+    """Why an empty answer is not a good answer.
+
+    The cheapest attack on a hash-chained ledger is not to alter it. Altering
+    it breaks the chain, and that is the one thing this tool always catches.
+    The cheap attack is to **delete** it — and `verify` used to answer, on a
+    path that did not exist:
+
+        0 decision(s) verified: the chain holds.     (exit 0)
+
+    A nightly audit would have gone green through the whole incident. The same
+    output greeted anyone who mistyped the path, which is how the first person
+    to try this tool meets it.
+
+    Nothing is not a passing grade. It exits 2, and it says which path it
+    looked at, because the usual cause is the boring one.
+    """
+    return (
+        f"{path} does not exist. Nothing was verified — and nothing verified "
+        f"is not the same as {what}. Check the path; if it is right, the "
+        "ledger is gone, which is the thing this tool exists to notice."
+    )
+
+
 def _verify(args: argparse.Namespace) -> int:
+    if not Path(args.ledger).exists():
+        print(_absent(Path(args.ledger), "a chain that holds"))
+        return 2
+
     led = _ledger(args)
     problems = led.verify()
     if args.evidence:
         problems += EvidenceStore(args.evidence).verify()
 
     if not problems:
-        print(f"{len(led.records())} decision(s) verified: the chain holds.")
+        count = len(led.records())
+        if not count:
+            # An empty ledger is a legitimate state before the first run, and
+            # a catastrophic one after it. The tool cannot tell which, so it
+            # refuses to call it a pass and says both.
+            print(
+                f"{args.ledger} holds no decisions. That is either a run that "
+                "has not started, or one whose record is gone. This tool "
+                "cannot tell the two apart, so it does not call it a pass."
+            )
+            return 2
+        print(f"{count} decision(s) verified: the chain holds.")
         return 0
 
     for problem in problems:
@@ -67,6 +147,10 @@ def _load_rule(spec: str) -> Callable[..., Any]:
 
 
 def _replay(args: argparse.Namespace) -> int:
+    if not Path(args.ledger).exists():
+        print(_absent(Path(args.ledger), "a rule that still reproduces"))
+        return 2
+
     try:
         rule = _load_rule(args.rule)
     except (ValueError, ImportError, FileNotFoundError, SyntaxError) as error:
@@ -94,6 +178,10 @@ def _replay(args: argparse.Namespace) -> int:
 
 
 def _stats(args: argparse.Namespace) -> int:
+    if not Path(args.ledger).exists():
+        print(_absent(Path(args.ledger), "a run that cost nothing"))
+        return 2
+
     stats = Ledger(args.ledger).stats()
 
     print(f"decisions   {stats['decisions']}")
@@ -114,6 +202,10 @@ def _stats(args: argparse.Namespace) -> int:
 
 
 def _trace(args: argparse.Namespace) -> int:
+    if not Path(args.ledger).exists():
+        print(_absent(Path(args.ledger), "an action with no cause"))
+        return 2
+
     hits = _ledger(args).trace_action(args.action)
     if not hits:
         print(f"no decision took an action of kind {args.action!r}.")
@@ -143,6 +235,13 @@ def _serve(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="glassbox", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    models = sub.add_parser(
+        "models", help="check this account really exposes the three tiers we route between"
+    )
+    models.add_argument("--api-key-env", default="NEBIUS_API_KEY")
+    models.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    models.set_defaults(run=_models)
 
     verify = sub.add_parser("verify", help="re-chain the ledger and resolve every citation")
     verify.add_argument("ledger", type=Path)
