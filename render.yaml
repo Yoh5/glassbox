@@ -1,0 +1,21 @@
+# The hosted demo, as a file rather than as settings typed into a dashboard.
+#
+# A deployment that exists only in someone's console is a deployment nobody can
+# review, reproduce or correct. This is four lines because the project has
+# `dependencies = []`: the viewer is `http.server`, the ledger is `json` and
+# `hashlib`, and the Nebius client is `urllib`. Nothing is installed to serve
+# the page.
+#
+# What it publishes: `runs/escalation/ledger.jsonl`, one measured run, read-only.
+# See `scripts/hosted.py` for why that is an exception and not the default.
+services:
+  - type: web
+    name: glassbox-demo
+    runtime: python
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: python scripts/hosted.py
+    # No environment variables, and that is worth noticing: the demo reads a
+    # file that is in the repository. It holds no key, calls no model, and
+    # reaches no network. There is nothing here to leak.
+    envVars: []

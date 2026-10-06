@@ -112,7 +112,7 @@ def _cell(key: str, value: str) -> str:
     return f"<div class='cell'><div class='n'>{_e(value)}</div><div class='k'>{_e(key)}</div></div>"
 
 
-def render_index(ledger: Ledger) -> str:
+def render_index(ledger: Ledger, notice: str = "") -> str:
     stats = ledger.stats()
     cells = [
         _cell("decisions", str(stats["decisions"])),
@@ -143,10 +143,20 @@ def render_index(ledger: Ledger) -> str:
             f"<span class='when'>{_e(record.started_at)}</span></a></li>"
         )
 
+    # The notice is for a copy of this page that someone else is reading --
+    # the hosted demo. It says what the page is, because a decision ledger
+    # served on the open internet is not what this product does: `serve`
+    # binds to loopback by default and that default does not move.
+    avis = (
+        f"<div class='banner' style='border-color:#8884'>{_e(notice)}</div>"
+        if notice else ""
+    )
+
     return _document(
         "Glass Box",
         "<h1>Decision ledger</h1>"
         f"<p class='sub'>{_e(ledger.path)}</p>"
+        f"{avis}"
         f"{_chain_banner(ledger)}"
         f"<h2>What the run cost</h2><div class='grid'>{''.join(cells)}</div>"
         f"<p class='sub' style='margin-top:.8rem'>{_e(escalation)}</p>"
@@ -243,10 +253,10 @@ def render_decision(ledger: Ledger, position: int) -> tuple[int, str]:
     )
 
 
-def render(path: str, ledger: Ledger) -> tuple[int, str]:
+def render(path: str, ledger: Ledger, notice: str = "") -> tuple[int, str]:
     """Routing, as a pure function: a path in, a status and a page out."""
     if path in ("/", "/index.html"):
-        return 200, render_index(ledger)
+        return 200, render_index(ledger, notice)
 
     if path.startswith("/decision/"):
         raw = path[len("/decision/"):].strip("/")
@@ -262,15 +272,16 @@ def render(path: str, ledger: Ledger) -> tuple[int, str]:
 class _Handler(BaseHTTPRequestHandler):
     server_version = "glassbox"
 
-    def __init__(self, *args: Any, ledger: Ledger, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, ledger: Ledger, notice: str = "", **kwargs: Any) -> None:
         self._ledger = ledger
+        self._notice = notice
         super().__init__(*args, **kwargs)
 
     def do_GET(self) -> None:  # noqa: N802 - the name http.server requires
         # Re-read on every request rather than caching: a ledger being written
         # while it is watched is the interesting case, and a viewer showing a
         # stale chain would be worse than no viewer.
-        status, body = render(self.path.split("?", 1)[0], self._ledger)
+        status, body = render(self.path.split("?", 1)[0], self._ledger, self._notice)
         payload = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -286,8 +297,16 @@ class _Handler(BaseHTTPRequestHandler):
         """Silent: the terminal is where the auditor is reading the CLI."""
 
 
-def serve(ledger: Ledger, *, host: str = "127.0.0.1", port: int = 8000) -> None:
-    server = HTTPServer((host, port), partial(_Handler, ledger=ledger))
+def serve(ledger: Ledger, *, host: str = "127.0.0.1", port: int = 8000,
+          notice: str = "") -> None:
+    """Browse a ledger over HTTP.
+
+    `host` stays `127.0.0.1`. A decision ledger is an agent's most sensitive
+    artifact -- what it read, what it was told, what it did -- and the default
+    must never put one on a network. The hosted demo passes `0.0.0.0` and a
+    `notice` explicitly, on one published snapshot, and says so on the page.
+    """
+    server = HTTPServer((host, port), partial(_Handler, ledger=ledger, notice=notice))
     print(f"Glass Box on http://{host}:{port}  (ctrl-c to stop)")
     try:
         server.serve_forever()
