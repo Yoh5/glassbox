@@ -18,7 +18,7 @@ Your agents make decisions. This one tells you which, on what information, what
 it cost, and whether anyone rewrote the record afterwards.
 ```
 
-134 caractères. L'alternative, plus concrète et plus longue (197) :
+138 caractères. L'alternative, plus concrète et plus longue (188) :
 
 ```
 A flight recorder for AI agents: every decision, the bytes it stood on, what it
