@@ -12,9 +12,20 @@ to wonder whether `[redacted]` was in the source all along.
 
 from __future__ import annotations
 
+import hashlib
+
 from typing import Any, Iterable, Mapping
 
 PLACEHOLDER = "[redacted]"
+
+
+def _descripteur(charge: bytes) -> str:
+    """Ce qu'on inscrit au registre à la place d'octets : leur taille et leur hachage.
+
+    Assez pour reconnaître la même charge deux fois et pour la rapprocher d'une
+    preuve stockée, et jamais assez pour reconstruire ce qu'elle contenait.
+    """
+    return f"<{len(charge)} bytes sha256:{hashlib.sha256(charge).hexdigest()[:16]}>"
 
 
 class Redactor:
@@ -63,7 +74,18 @@ class Redactor:
         if isinstance(obj, str):
             return self(obj)
         if isinstance(obj, (bytes, bytearray)):
-            return self.bytes(bytes(obj))
+            # Redacted bytes are still bytes, and the ledger is JSON: writing
+            # them back raised `TypeError: Object of type bytes is not JSON
+            # serializable` from inside the decision block, so the decision was
+            # never recorded at all. A recorder that drops what it was asked to
+            # record is the one failure this project cannot have.
+            #
+            # They are described rather than carried. An action's parameters say
+            # what the agent did; the bytes it acted on belong in the evidence
+            # store, which is content-addressed and built for them. A descriptor
+            # is also the only form that cannot hide a credential in a payload
+            # nobody reads.
+            return _descripteur(self.bytes(bytes(obj)))
         if isinstance(obj, Mapping):
             return {self.value(key): self.value(item) for key, item in obj.items()}
         if isinstance(obj, (list, tuple, set, frozenset)):

@@ -20,7 +20,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **194 tests.**
+[CADRAGE.md](CADRAGE.md). **198 tests.**
 
 | Piece | Status |
 |---|---|

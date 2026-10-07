@@ -157,3 +157,68 @@ def test_the_chain_still_holds_over_redacted_records(tmp_path):
         d.act("call-api", token=SECRET)
 
     assert rec.verify() == []
+
+
+# ── Les octets, trouvés par la mesure plutôt que par la lecture ─────────
+
+def test_bytes_in_an_action_do_not_break_the_recorder(tmp_path):
+    """Écrire des octets dans une action levait `TypeError` depuis le bloc.
+
+    La branche octets de `Redactor.value` rédigeait puis rendait des octets, que
+    le registre JSON ne peut pas sérialiser. L'exception partait de `__exit__`,
+    donc **la décision n'était pas enregistrée du tout** — un enregistreur qui
+    perd ce qu'on lui confie est la seule panne que ce projet ne peut pas avoir.
+
+    Les 194 tests passaient : aucun ne mettait d'octets dans une action. Trouvé
+    par l'outil de mesure de portée d'oracle, qui a signalé `redact.py:66` comme
+    jamais exécutée.
+    """
+    rec = recorder(tmp_path)
+    with rec.decision("write") as d:
+        d.act("write-file", path="notes.md", content=f"token {SECRET}".encode())
+
+    assert SECRET not in ledger_text(rec)
+    assert rec.verify() == []
+
+
+def test_bytes_are_described_not_carried(tmp_path):
+    """Un paramètre d'action dit ce que l'agent a fait ; la charge va aux preuves.
+
+    Le descripteur porte la taille et un préfixe de hachage : assez pour
+    reconnaître deux fois la même charge, jamais assez pour la reconstruire.
+    """
+    rec = recorder(tmp_path)
+    with rec.decision("write") as d:
+        d.act("write-file", content=b"hello world")
+
+    contenu = only_action(rec)["content"]
+    assert contenu.startswith("<11 bytes sha256:")
+    assert "hello" not in contenu
+
+
+def test_the_descriptor_hashes_the_redacted_bytes(tmp_path):
+    """Hacher la charge brute permettrait de confirmer un secret deviné.
+
+    Deux charges qui ne diffèrent que par le secret doivent donner le même
+    descripteur, parce que le secret a disparu avant le hachage.
+    """
+    a = recorder(tmp_path / "a")
+    with a.decision("write") as d:
+        d.act("write-file", content=f"x {SECRET} y".encode())
+
+    b = recorder(tmp_path / "b", "sk-live-a-completely-different-one")
+    with b.decision("write") as d:
+        d.act("write-file", content=b"x sk-live-a-completely-different-one y")
+
+    assert only_action(a)["content"] == only_action(b)["content"]
+
+
+def test_bytes_nested_in_a_structure_are_described_too(tmp_path):
+    rec = recorder(tmp_path)
+    with rec.decision("write") as d:
+        d.act("write-file", parts=[b"first", {"body": bytearray(b"second")}])
+
+    action = only_action(rec)
+    assert action["parts"][0].startswith("<5 bytes sha256:")
+    assert action["parts"][1]["body"].startswith("<6 bytes sha256:")
+    assert rec.verify() == []

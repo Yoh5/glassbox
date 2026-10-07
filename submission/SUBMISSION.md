@@ -147,7 +147,7 @@ changed in half of them. The 30B model answered *Paris*, *17 is prime* and
 *seven continents* alone; only *is a hot dog a sandwich* went to the 550B. That
 is the whole idea working.
 
-194 tests, no runtime dependencies, and every command that reads a ledger exits
+198 tests, no runtime dependencies, and every command that reads a ledger exits
 non-zero when there is none — printing an empty table would read as "nothing
 happened" rather than "nothing was recorded", which is the one confusion this
 project exists to prevent.
