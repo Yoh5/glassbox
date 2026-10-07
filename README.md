@@ -20,7 +20,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **122 tests.**
+[CADRAGE.md](CADRAGE.md). **186 tests.**
 
 | Piece | Status |
 |---|---|
@@ -35,6 +35,7 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | Tiered routing with a deterministic escalation signal | done |
 | Nemotron on Nebius Token Factory, priced from real usage | done |
 | Web viewer | done |
+| `verify` reports fields no hash covers | done |
 
 ## Recording a decision
 
@@ -54,19 +55,22 @@ decisions. `examples/injected_page.py` runs the whole incident in thirty lines.
 
 ## What it does today
 
-`runs/ledger.jsonl` below is what `examples/injected_page.py` writes; it prints the two
-commands with the paths filled in, so run it first and paste. (The shipped ledger from the
-measured run is at `runs/escalation/ledger.jsonl`, and `verify` works on it as it stands.)
+`examples/injected_page.py` writes a fresh run to a **temporary directory**, and prints
+every command back with that run's paths already filled in — so run it first and paste. No
+fixed path is printed here, because there is no path that would be right for your machine.
+(The shipped ledger from the measured run is at `runs/escalation/ledger.jsonl`, and `verify`
+works on it as it stands, from the repository root.)
 
 ```bash
 python examples/injected_page.py
 # ledger:   /tmp/glassbox-xxxx/ledger.jsonl
+# evidence: /tmp/glassbox-xxxx/evidence
 # verify:   the chain holds
+#
+#   python -m glassbox verify /tmp/glassbox-xxxx/ledger.jsonl --evidence ...
+#   python -m glassbox trace  /tmp/glassbox-xxxx/ledger.jsonl --evidence ... --action read-file
 
-python -m glassbox verify runs/ledger.jsonl --evidence runs/evidence
-# 2 decision(s) verified: the chain holds.
-
-python -m glassbox trace runs/ledger.jsonl --evidence runs/evidence --action read-file
+# paste the second one:
 # #2  summarise-page  2026-10-14T09:31:07Z  version a1b2c3d
 #       action: {'kind': 'read-file', 'target': '~/.ssh/id_rsa'}
 #       read:   https://blog.example.net/post  fetched 2026-10-14T09:31:00Z
@@ -81,7 +85,7 @@ file. This one names the page that told it to, and the moment that page was fetc
 ## The same thing, on a page
 
 ```bash
-python -m glassbox serve runs/ledger.jsonl --evidence runs/evidence
+python -m glassbox serve /tmp/glassbox-xxxx/ledger.jsonl --evidence /tmp/glassbox-xxxx/evidence
 # Glass Box on http://127.0.0.1:8000  (ctrl-c to stop)
 ```
 
@@ -116,7 +120,7 @@ FAIL  record 2 (summarise-page) has been edited since it was written
 ## Would it decide the same thing again?
 
 ```bash
-python -m glassbox replay runs/ledger.jsonl --evidence runs/evidence --rule agent/rules.py:decide
+python -m glassbox replay /tmp/glassbox-xxxx/ledger.jsonl --evidence /tmp/glassbox-xxxx/evidence \n                           --rule agent/rules.py:decide
 # ok    #1  buy?  the rule reproduces the recorded decision
 # FAIL  #2  buy?  recorded {"action":"none",...}, recomputed {"action":"buy",...}
 #
@@ -201,7 +205,7 @@ not. The numbers are published as measured.
 ## What it cost, and what the expensive tier bought
 
 ```bash
-python -m glassbox stats runs/ledger.jsonl    # or runs/escalation/ledger.jsonl, shipped
+python -m glassbox stats runs/escalation/ledger.jsonl   # the shipped measured run
 # decisions   412
 # asks        412
 #   nano      824 call(s)

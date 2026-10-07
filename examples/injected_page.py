@@ -41,10 +41,16 @@ def main() -> None:
     print(f"ledger:   {rec.ledger.path}")
     print(f"evidence: {rec.store.root}")
     print(f"verify:   {rec.verify() or 'the chain holds'}")
+    # Printed ready to paste, with the paths filled in. This run writes to a
+    # fresh temporary directory, so a command quoting a fixed path would be
+    # wrong for every reader — including the one reading the README.
     print()
-    print("Now ask what caused the file read:")
+    print("Check the chain, then ask what caused the file read:")
+    print(f"  python -m glassbox verify {rec.ledger.path} --evidence {rec.store.root}")
     print(f"  python -m glassbox trace {rec.ledger.path} --evidence {rec.store.root} "
           f"--action read-file")
+    print()
+    print(f"  python -m glassbox serve {rec.ledger.path} --evidence {rec.store.root}")
 
 
 if __name__ == "__main__":

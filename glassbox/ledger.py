@@ -99,6 +99,12 @@ _BODY_KEYS = (
 )
 
 
+#: The two keys that carry the chain itself. Everything a record may legally
+#: hold is `_BODY_KEYS` plus these; anything else is a field no hash covers,
+#: which `verify` reports rather than ignores.
+_STRUCTURAL_KEYS = ("prev", "chain")
+
+
 def _canonical(body: Mapping[str, Any]) -> str:
     return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -217,6 +223,14 @@ class Ledger:
             elif _chain_hash(body, prev) != raw.get("chain"):
                 problems.append(
                     f"record {position} ({raw['name']}) has been edited since it was written"
+                )
+
+            hors_chaine = sorted(set(raw) - set(_BODY_KEYS) - set(_STRUCTURAL_KEYS))
+            if hors_chaine:
+                problems.append(
+                    f"record {position} ({raw['name']}) carries "
+                    f"{', '.join(hors_chaine)}, which no hash covers: this verifier "
+                    "cannot vouch for a field it does not know about"
                 )
 
             prev = raw.get("chain")

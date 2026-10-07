@@ -106,3 +106,31 @@ def test_la_reserve_sur_le_bruit_d_echantillonnage_reste_ecrite():
 def test_la_chaine_du_registre_publie_tient():
     """Une mesure lue dans un registre qui ne se vérifie pas ne vaut rien."""
     assert Ledger(LEDGER).verify() == []
+
+
+# ── Et le chiffre qui avait déjà dérivé ─────────────────────────────────
+
+def test_le_nombre_de_tests_annonce_est_celui_que_pytest_collecte():
+    """Le README annonçait 122 tests quand la suite en comptait 179.
+
+    Trouvé en marchant le produit, pas en le relisant. C'est exactement la
+    dérive que ce projet existe pour détecter chez les autres, et les sept
+    gardes voisins ne couvraient que les chiffres de la mesure.
+
+    Le compte est demandé à pytest plutôt que calculé : compter les fonctions
+    `test_*` à la main donne 159, parce que `parametrize` en produit d'autres —
+    un garde qui compte autrement que l'outil garde un autre chiffre.
+    """
+    import subprocess
+    import sys
+
+    sortie = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", str(RACINE / "tests")],
+        capture_output=True, text=True, cwd=RACINE,
+    ).stdout
+    collectes = re.search(r"(\d+) tests? collected", sortie)
+    assert collectes, f"pytest n'a pas annoncé de total :\n{sortie[-400:]}"
+
+    annonce = re.search(r"\*\*(\d+) tests\.\*\*", README)
+    assert annonce, "le README n'annonce plus de nombre de tests"
+    assert int(annonce.group(1)) == int(collectes.group(1))
