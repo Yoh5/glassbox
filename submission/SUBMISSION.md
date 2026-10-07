@@ -231,7 +231,13 @@ http-server, pytest, render
 ## Links to fill in at submission
 
 - **Repository (public, Apache 2.0):** https://github.com/Yoh5/glassbox
-- **Working demo:** à remplir une fois le blueprint Render déployé
+- **Working demo:** https://glassbox-demo.onrender.com — instantané en lecture
+  seule du registre mesuré. Vérifié le 8 octobre 2026 : la chaîne tient sur les
+  12 décisions, et les totaux de la page (0,0029 $, 24 nano / 4 super / 2 ultra,
+  2 escalades sur 12 dont 50 % ont changé de réponse) sont identiques à ceux que
+  rend `glassbox stats runs/escalation/ledger.jsonl` en local.
+  ⚠️ Render endort les services gratuits : prévoir ~30 s au premier chargement,
+  et ouvrir le lien avant de le donner à un juré.
 - **Video (public, YouTube, under 3 minutes):** à tourner
 - **Upstream contribution:** à faire — voir le point C du plan
 
