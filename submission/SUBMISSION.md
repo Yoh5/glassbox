@@ -89,6 +89,33 @@ that says so on its own page.
 
 ### Challenges we ran into
 
+The two worst defects in this project were found by *using* it, not by reading
+it, and neither was visible to the suite. Both were in the product's own thesis.
+
+- **Our auditing tool wrote credentials into a ledger its design makes
+  unerasable.** `redact.py` opens by explaining that an append-only, hash-chained
+  journal cannot be scrubbed afterwards without breaking the chain, so a secret
+  must be redacted *before* it is written. The recorder then wrote an action's
+  parameters in raw — `act("call-api", token=...)` landed verbatim and sealed.
+  The line immediately below it redacted the same dictionary for the outcome
+  text: the copy was protected and the original was not. Found by pushing one
+  secret through every channel into the ledger and grepping for it; evidence,
+  refusals, outcomes and the error path were all clean. 186 tests were not,
+  because not one of them put a secret in an action. Redaction now walks the
+  structure — keys as well as values, nested dictionaries and lists — while
+  `retries=3` stays the integer 3, because `str(fields)` would have fixed the
+  leak and turned every number into text.
+- **"The chain holds" was true of nine fields and nothing else.** The chain
+  hashes an allowlist, so that adding an optional field would not invalidate
+  every ledger already on disk. The cost of that choice is that a key *outside*
+  the list is hashed by nothing: appending `"severity": "benign"` to a sealed
+  record left `verify` reporting a chain that holds. Every test mutated a field
+  the chain already knew about, so the gate could only fail in the direction it
+  was built to fail in. `verify` now names the record and the unhashed fields
+  and exits non-zero — without calling it an edit, because a newer writer may
+  simply know a field this reader does not. It does not call the record intact
+  either: a verifier that cannot account for part of a record has no business
+  doing so.
 - **The first real run found a bug in the escalation signal.** "Yellow" and
   "yellow" counted as a disagreement, and sent a question about the colour of a
   banana to a model that costs twelve times more, which confirmed the same
@@ -137,6 +164,15 @@ And one about measurement: our own escalation number was wrong the first time,
 and it was wrong in the flattering direction — it made the expensive tier look
 necessary. A project that publishes a saving has to be most suspicious of the
 run that makes it look good.
+
+And the one we will carry into the next project: **a suite proves the rules it
+was written from, and only those.** Ours was green through both defects above,
+and green for the same reason in each — every test mutated something the code
+already knew to look at. The two holes were in what the code did *not* know to
+look at, and the only way we found them was to behave like a user: push a secret
+down every path that reaches the ledger, and edit a sealed record the way
+someone covering their tracks would. Neither took an hour. Both were invisible
+from inside the test suite that had grown to 186 cases around them.
 
 ### What's next for Glass Box
 
