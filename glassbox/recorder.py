@@ -82,7 +82,13 @@ class DecisionContext:
         return answer
 
     def act(self, kind: str, **fields: Any) -> None:
-        self._actions.append({"kind": kind, **fields})
+        # Redacted here, at capture, and not on the way out: the ledger is
+        # append-only and hash-chained, so a credential that reaches it cannot
+        # be taken back out. `token=` and `api_key=` are exactly the shape an
+        # action's parameters take, and the outcome line below was already
+        # redacting this same dictionary — the copy, not the original.
+        champs = self._recorder.redact_value(fields)
+        self._actions.append({"kind": self._recorder.redact(kind), **champs})
         self._outcome = {"action": kind, "reason": self._recorder.redact(str(fields))}
 
     def refuse(self, reason: str) -> None:
@@ -138,11 +144,14 @@ class Recorder:
                 f"a decision is already open ({self._open.name!r}): one block is one record, "
                 "and nesting them would describe two decisions in one"
             )
-        self._open = DecisionContext(self, name, self.clock())
+        self._open = DecisionContext(self, self.redact(name), self.clock())
         return self._open
 
     def redact(self, text: str) -> str:
         return self._redactor(text)
+
+    def redact_value(self, obj: Any) -> Any:
+        return self._redactor.value(obj)
 
     def verify(self) -> list[str]:
         return self.ledger.verify() + self.store.verify()

@@ -12,7 +12,7 @@ to wonder whether `[redacted]` was in the source all along.
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 PLACEHOLDER = "[redacted]"
 
@@ -45,3 +45,27 @@ class Redactor:
     def applied(self, text: str) -> bool:
         """Whether redacting this text would change it — recorded on the item."""
         return any(secret in text for secret in self._secrets)
+
+    def value(self, obj: Any) -> Any:
+        """Redacts through a structure, leaving everything that is not text alone.
+
+        An action is recorded as `{"kind": ..., **fields}`, and fields are
+        whatever the agent author passed: `token="sk-live-..."` sits beside
+        `retries=3` and `headers={"authorization": "..."}`. Stringifying the lot
+        would redact it and turn 3 into "3", so the walk keeps the shape and
+        touches only the strings and bytes in it.
+
+        Keys are redacted as well as values. A secret used as a dictionary key
+        is unusual, but a ledger is append-only and hash-chained: a credential
+        that reaches it cannot be taken back out, so the cheap half of the pair
+        is not the one to skip.
+        """
+        if isinstance(obj, str):
+            return self(obj)
+        if isinstance(obj, (bytes, bytearray)):
+            return self.bytes(bytes(obj))
+        if isinstance(obj, Mapping):
+            return {self.value(key): self.value(item) for key, item in obj.items()}
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            return [self.value(item) for item in obj]
+        return obj
