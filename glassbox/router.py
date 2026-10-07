@@ -25,6 +25,16 @@ CallFn = Callable[[str, str], tuple[str, float]]
 DEFAULT_TIERS = ("nano", "super", "ultra")
 
 
+class BudgetExhausted(RuntimeError):
+    """Raised when the ceiling is reached, before the call that would cross it.
+
+    An exception rather than a quietly degraded answer: a router that returns a
+    cheaper tier's result because it has run out of budget produces a decision
+    nothing distinguishes from an ordinary one. The caller has to know the
+    answer was not obtained.
+    """
+
+
 def default_normalise(text: str) -> str:
     """What counts as "the same answer" when two samples are compared.
 
@@ -68,15 +78,51 @@ class Router:
         samples: int = 2,
         validate: Callable[[str], bool] | None = None,
         normalise: Callable[[str], str] = default_normalise,
+        max_cost_usd: float | None = None,
     ) -> None:
         if samples < 2:
             raise ValueError("samples must be at least 2: one sample cannot disagree with itself")
+        if max_cost_usd is not None and max_cost_usd <= 0:
+            raise ValueError("max_cost_usd must be positive: a ceiling of zero forbids the first call")
         self._call = call
         self._tiers = tuple(tiers)
         self._samples = samples
         self._validate = validate
         self._normalise = normalise
+        self._max_cost_usd = max_cost_usd
         self._tally = _Tally()
+
+    @property
+    def spent_usd(self) -> float:
+        """What this router has spent so far, across every ask."""
+        return self._tally.cost_usd
+
+    def _refuse_if_over(self, prochain: str) -> None:
+        """Stops once the ceiling is crossed — it does not promise never to cross it.
+
+        The distinction is worth the sentence. The check asks "have I already
+        spent the ceiling?" before each call, so the call that crosses it is
+        still paid for: a $0.05 ceiling stopped at $0.06 in the test that pins
+        this. The cost of a call is not known until it returns, and a router
+        that refused on an *estimate* would refuse on a number it invented.
+
+        A single ask was already bounded — `max_tokens`, two timeouts — but a
+        series was not: the router walks the tiers, samples each, and nothing
+        counts the total. OWASP ranks unbounded consumption sixth among the
+        risks it measured against real incidents, and the awkward part is that
+        this project *measures* cost on every call. It had the number and did
+        not use it.
+
+        The check runs before the call, not after, because a ceiling that
+        notices it has been crossed has already paid for the crossing.
+        """
+        if self._max_cost_usd is None:
+            return
+        if self._tally.cost_usd >= self._max_cost_usd:
+            raise BudgetExhausted(
+                f"this router has spent ${self._tally.cost_usd:.4f} of its "
+                f"${self._max_cost_usd:.4f} ceiling; the {prochain} call was not made"
+            )
 
     def ask(self, prompt: str, *, floor: str | None = None) -> Answer:
         start = self._tiers.index(floor) if floor else 0
@@ -89,6 +135,7 @@ class Router:
             tier = self._tiers[index]
             answers: list[str] = []
             for _ in range(self._samples):
+                self._refuse_if_over(tier)
                 text, call_cost = self._call(tier, prompt)
                 answers.append(text)
                 cost += call_cost

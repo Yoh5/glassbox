@@ -20,7 +20,7 @@ because the three questions you actually ask then have no answer:
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **198 tests.**
+[CADRAGE.md](CADRAGE.md). **205 tests.**
 
 | Piece | Status |
 |---|---|
@@ -90,8 +90,8 @@ python -m glassbox serve /tmp/glassbox-xxxx/ledger.jsonl --evidence /tmp/glassbo
 ```
 
 The chain's verdict at the top, what the run cost, and one page per decision:
-what it read, what it asked and at which tier, what it did. Same three questions, for the
-reader who will not type any of this.
+what it read, that it asked a model and at which tier, what it did. Same three
+questions, for the reader who will not type any of this.
 
 It renders nothing of its own — the banner is `verify()`, the totals are `stats()` — so the
 page cannot claim something the command line would deny.

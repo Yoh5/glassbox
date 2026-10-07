@@ -53,7 +53,10 @@ A Python library you attach to an existing agent in three lines, plus a
 read-only viewer.
 
 - **Records decisions, not calls.** A decision carries what it read (the bytes,
-  by hash), what it asked a model, what it did, and what it cost.
+  by hash), that it asked a model and at which tier, what it did, and what it
+  cost. Deliberately not the prompt: the information a decision stood on is the
+  evidence, addressed by content, and a prompt log is the thing every other tool
+  already keeps.
 - **Chains them.** Each record commits to the previous one, so removing or
   editing an entry breaks the chain and `glassbox verify` names the first
   record that does not hold — "something is wrong somewhere" is not a finding.
@@ -147,7 +150,7 @@ changed in half of them. The 30B model answered *Paris*, *17 is prime* and
 *seven continents* alone; only *is a hot dog a sandwich* went to the 550B. That
 is the whole idea working.
 
-198 tests, no runtime dependencies, and every command that reads a ledger exits
+205 tests, no runtime dependencies, and every command that reads a ledger exits
 non-zero when there is none — printing an empty table would read as "nothing
 happened" rather than "nothing was recorded", which is the one confusion this
 project exists to prevent.
