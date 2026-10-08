@@ -97,8 +97,33 @@ def nebius_call(
         # Nemotron 3 reasons before it answers. When `max_tokens` runs out
         # inside the thinking, the API returns `content: null` -- and a crash
         # there would take a fourteen-day run down over one truncated answer.
+        #
+        # Two things were wrong here, both found by probing the live API on
+        # 8 October 2026 rather than by reading our own code.
+        #
+        # The field is `reasoning`, not `reasoning_content`. The fallback was
+        # reading a key the response does not carry, so it never fired: a
+        # truncated reply came back as the empty string, and nothing said why.
+        #
+        # And substituting the thinking for the answer was wrong even once the
+        # name was right. "Okay, so I need to figure out why 91 isn't a prime
+        # number. Let me start by recalling" is not an answer; recording it as
+        # one puts a half-formed thought in the ledger under the same shape as
+        # a real reply, where the router then compares it for agreement and the
+        # viewer shows it as what the model said. A tool whose whole claim is
+        # that the record can be trusted cannot do that.
+        #
+        # So a truncation is reported as a truncation. It stays a string, so
+        # nothing crashes, and it cannot be mistaken for a reply by a reader or
+        # by a `validate` callback.
         message = body["choices"][0]["message"]
-        text = (message.get("content") or message.get("reasoning_content") or "").strip()
+        text = (message.get("content") or "").strip()
+        if not text:
+            thinking = (message.get("reasoning")
+                        or message.get("reasoning_content") or "").strip()
+            raison = body["choices"][0].get("finish_reason") or "unknown"
+            text = (f"[no answer: finish_reason={raison}, "
+                    f"{len(thinking)} chars of reasoning and no content]")
         usage = body.get("usage") or {}
         cost = (
             usage.get("prompt_tokens", 0) / 1_000_000 * model.usd_in_per_m

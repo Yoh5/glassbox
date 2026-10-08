@@ -120,24 +120,46 @@ def test_the_tier_ids_are_the_ones_the_api_serves_not_the_ones_the_page_shows():
 
 
 def test_a_reasoning_model_that_spends_its_budget_thinking_does_not_crash_the_run():
-    # Nemotron 3 is a reasoning model: when max_tokens runs out inside the
-    # thinking, the API returns content: null. Crashing there would take down a
-    # fourteen-day run over one truncated answer.
+    """Nemotron 3 reasons before it answers; a truncated thought returns
+    content: null, and crashing there would take down a long run.
+
+    This test used to assert `text == "let me think..."` -- the thinking
+    returned as the answer -- against a fixture carrying `reasoning_content`.
+    Probing the live API on 8 October 2026 showed the field is `reasoning`, so
+    the fixture described a response the API does not produce, and the
+    assertion pinned behaviour that was wrong anyway: a half-formed thought
+    must not enter the ledger wearing the shape of a reply.
+
+    The fixture now matches what the API returns, and the assertion is that the
+    truncation is reported rather than disguised.
+    """
     def post(url, *, headers, json):
         return {
-            "choices": [{"message": {"content": None, "reasoning_content": "let me think..."}}],
+            "choices": [{"message": {"content": None, "reasoning": "let me think..."},
+                         "finish_reason": "length"}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 24},
         }
 
     call = nebius_call(api_key="k", base_url="https://api.example/v1", post=post)
     text, cost = call("nano", "x")
 
-    assert text == "let me think..."
+    assert "let me think..." not in text, "the thinking is passed off as an answer"
+    assert "no answer" in text and "finish_reason=length" in text
     assert cost > 0
 
 
-def test_an_answer_with_neither_content_nor_reasoning_is_empty_not_a_crash():
+def test_an_answer_with_neither_content_nor_reasoning_says_so_rather_than_nothing():
+    """Was: returns the empty string. Changed deliberately on 8 October 2026.
+
+    "No crash" was the right instinct and the wrong landing. An empty string is
+    indistinguishable from a model that answered with nothing, and it travels
+    into the ledger wearing the shape of a reply. The reply now names what
+    happened, stays a string so nothing crashes, and cannot be read as an
+    answer. See tests/test_truncated_reply.py for the rest of the contract.
+    """
     def post(url, *, headers, json):
         return {"choices": [{"message": {"content": None}}], "usage": {}}
 
-    assert nebius_call(api_key="k", base_url="https://api.example/v1", post=post)("nano", "x") == ("", 0.0)
+    texte, cout = nebius_call(api_key="k", base_url="https://api.example/v1", post=post)("nano", "x")
+    assert "no answer" in texte
+    assert cout == 0.0
