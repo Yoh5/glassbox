@@ -239,7 +239,15 @@ http-server, pytest, render
   ⚠️ Render endort les services gratuits : prévoir ~30 s au premier chargement,
   et ouvrir le lien avant de le donner à un juré.
 - **Video (public, YouTube, under 3 minutes):** à tourner
-- **Upstream contribution:** à faire — voir le point C du plan
+- **Upstream contribution:** deux dépôts sur `nebius/token-factory-cookbook` —
+  [PR #73](https://github.com/nebius/token-factory-cookbook/pull/73) : l'exemple
+  de code de la page Nemotron Nano rend 404, l'API ne sert que la forme en casse
+  mixte. Vérifié sur les deux points d'accès, dont celui que la page emploie.
+  [Issue #74](https://github.com/nebius/token-factory-cookbook/issues/74) : une
+  réponse tronquée range son texte sous `reasoning` et non `reasoning_content`,
+  ce que rien ne documente — et qui nous a coûté un bogue réel, corrigé en
+  `b1522b8`. Le détail et ce qui a été délibérément écarté du rapport sont dans
+  `submission/CONTRIBUTION-AMONT.md`.
 
 ## Product feedback
 
