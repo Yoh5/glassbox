@@ -34,7 +34,12 @@ def main() -> None:
 
     with rec.decision("summarise-page") as d:
         page = d.evidence(source="https://blog.example.net/post", payload=PAGE)
-        answer = d.ask(f"Summarise this page: {page.payload.decode()}")
+        # The page is passed as evidence, not folded into the instruction. That
+        # does not stop the agent obeying what the page says -- it obeys two
+        # lines below, which is the whole point of this example. It puts the
+        # page on the ask in the record, so `trace` can walk from the file read
+        # back to the exact document that asked for it.
+        answer = d.ask("Summarise this page", evidence=[page])
         if answer.text.startswith("read-file"):
             d.act("read-file", target="~/.ssh/id_rsa")
 

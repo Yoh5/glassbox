@@ -51,7 +51,7 @@ Le paradoxe est que **le projet mesure le coût par appel et par décision**. Il
 la donnée pour poser un plafond et ne le pose pas. Un `max_cost_usd` sur le
 `Router`, qui refuse plutôt que de dépasser, serait quelques lignes.
 
-## ⚠️ n° 1 — Injection de prompt (partiel)
+## ✅ n° 1 — Injection de prompt (fermé le 8 octobre)
 
 Glass Box n'est pas vulnérable : c'est l'outil qui **enregistre** une injection
 réussie, et `examples/injected_page.py` fait précisément la démonstration.
@@ -64,9 +64,19 @@ son propre exemple interpole la page dans la question :
 answer = d.ask(f"Summarise this page: {page.payload.decode()}")
 ```
 
-Un `ask(instruction, evidence=[...])` qui séparerait les deux à la construction
-du message rendrait la distinction impossible à oublier. En l'état, l'exemple
-enseigne le geste dangereux.
+**Corrigé.** `ask(instruction, evidence=[...])` existe, l'exemple l'emploie, et
+chaque preuve est annoncée par sa source et sa date de récupération.
+
+**Mais le gain principal n'est pas celui-là, et il est plus grand.** Les preuves
+étaient citées sur la *décision*, jamais sur la question : une décision qui lit
+trois documents et pose deux questions ne disait pas laquelle reposait sur
+lequel. Le registre le dit maintenant, et c'est la première des trois questions
+du projet.
+
+⚠️ **Rien de tout cela n'empêche une injection, et le code le dit en toutes
+lettres.** Aucun délimiteur n'est une frontière de sécurité. Ce qu'on gagne est
+que lorsqu'un agent obéit à une instruction injectée, `trace` remonte jusqu'au
+document exact.
 
 ---
 
