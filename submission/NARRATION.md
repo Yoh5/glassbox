@@ -162,3 +162,41 @@ Même découpage, mais les plans 1 à 4 sont composés image par image depuis la
 avec un effet de frappe. Le plan 5 passe par des captures de la page web.
 Honnête, exact, et sans un seul pixel inventé — mais plus sobre qu'une vraie
 capture. Un encodeur est nécessaire (`imageio-ffmpeg`, ~25 Mo).
+
+---
+
+## Deux montages existent
+
+**`video/glassbox-keynote.mp4`** — 2 min 30, neuf scènes, c'est celui à
+soumettre. Présentation plutôt que capture : la chaîne se dessine maillon par
+maillon avec les vrais niveaux et les vrais coûts, les deux escalades sont
+comparées, et le maillon falsifié **se brise** au lieu de simplement rougir.
+`python submission/video/keynote.py`.
+
+**`video/glassbox-demo.mp4`** — 50 s, le terminal filmé. Plus sobre, et il garde
+une fonction : il montre que les sorties du keynote sont bien celles des
+commandes. `python submission/video/faire_la_video.py`.
+
+Les deux **relancent les commandes au moment du rendu**. Si `verify` change de
+message, les vidéos changent avec lui ; si le registre altéré passait la
+vérification, le rendu s'arrêterait au lieu de filmer une démonstration vide.
+
+### Pourquoi le maillon se brise au lieu de rougir
+
+La version évidente peint la chaîne en vert et le maillon fautif en rouge. Le
+validateur de palette mesure **ΔE 4,1 en deutéranopie** entre ces deux couleurs :
+un spectateur daltonien ne verrait rien du temps fort. Donc la rupture passe par
+la **géométrie** — un vide, le numéro d'enregistrement, une croix — et la
+couleur ne fait que renforcer. C'est aussi un meilleur plan.
+
+### Ce qui manque, et que je ne peux pas produire
+
+**Le son.** Pas de musique, pas de voix off. Un keynote muet est la moitié d'un
+keynote. Les temps forts sont imprimés à la fin du rendu pour caler une piste :
+
+```
+0:00 ouverture · 0:12 these · 0:24 enregistrement · 0:38 chaine
+1:02 chiffres  · 1:20 escalades · 1:36 rupture · 2:06 commandes · 2:19 fin
+```
+
+La montée doit tomber sur **1:36**, quand la chaîne cède.

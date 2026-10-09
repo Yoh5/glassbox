@@ -7,3 +7,4 @@ _demo/
 .env
 submission/video/captures/
 submission/video/*.mp4
+submission/video/apercu/
