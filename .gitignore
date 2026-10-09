@@ -5,3 +5,5 @@ __pycache__/
 _demo/
 *.egg-info/
 .env
+submission/video/captures/
+submission/video/*.mp4
