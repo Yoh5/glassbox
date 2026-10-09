@@ -1,5 +1,7 @@
 # Glass Box
 
+![Glass Box — an agent's decisions, sealed and verifiable](docs/cover.png)
+
 [![ci](https://github.com/Yoh5/glassbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Yoh5/glassbox/actions/workflows/ci.yml)
 
 **Your agents make decisions. This one tells you which, why, on what information, and what it
