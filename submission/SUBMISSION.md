@@ -60,6 +60,15 @@ read-only viewer.
 - **Chains them.** Each record commits to the previous one, so removing or
   editing an entry breaks the chain and `glassbox verify` names the first
   record that does not hold — "something is wrong somewhere" is not a finding.
+- **States what the chain does not prove.** An adversarial bench
+  (`scripts/adversarial.py`) runs ten attacks against a real ledger and
+  publishes the four that get through: truncation, rollback, a forged append,
+  and a full rewrite by whoever holds the writer. They share one cause — a chain
+  proves that the records it holds follow one another, and nothing about records
+  it does not hold. `glassbox head` prints the count and head hash for someone
+  else to record, and `verify --expect-count/--expect-head` catches all four.
+  The condition is stated rather than implied: that commitment is worth
+  something only if the party holding it is not the adversary.
 - **Replays.** `glassbox replay` re-runs the rule over the evidence each
   decision cited, and says plainly when that proves nothing.
 - **Traces an action back to a byte.** `glassbox trace` walks from "the agent
@@ -179,10 +188,15 @@ from inside the test suite that had grown to 186 cases around them.
 
 ### What's next for Glass Box
 
-Recording a real agent in production rather than a measurement harness, an
-exporter so a ledger can be anchored externally (the chain proves tampering,
-not *when* a record was written), and the dedicated-endpoint Nemotron models,
-which need a deployment rather than a public endpoint.
+External anchoring is now the first item rather than a nice-to-have, and the
+adversarial bench is why. `head` closes the four attacks the chain misses, but
+only for a reader who recorded the commitment beforehand; anchoring a head to a
+timestamping authority removes that precondition and adds the one thing nothing
+in the file can give — proof of *when* a record was written.
+
+Then: recording a real agent in production rather than a measurement harness,
+and the dedicated-endpoint Nemotron models, which need a deployment rather than
+a public endpoint.
 
 ---
 
@@ -215,6 +229,15 @@ versions the packaging claims to support; a viewer for the reader who will not
 type a command; a `models` command that shows what each tier costs; every
 ledger-reading command exiting non-zero when there is no ledger; and the hosted
 read-only snapshot that this submission links to.
+
+Written last, and the reason the claim at the top of the README changed: an
+adversarial bench of ten attacks. It found that truncating a ledger -- not
+rewriting it, just stopping the story early -- left `verify` saying "the chain
+holds" while the totals quietly dropped from $0.0029 to $0.0019 and "the answer
+changed in 50% of escalations" became 0%. Four of the ten get through on the
+chain alone. `glassbox head` and `verify --expect-count/--expect-head` close all
+four, the README now states its perimeter instead of implying a wider one, and
+the bench ships as a regression test rather than as a paragraph.
 ```
 
 ---

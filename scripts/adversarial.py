@@ -41,9 +41,15 @@ sys.path.insert(0, str(RACINE))
 from glassbox.ledger import _canonical, _chain_hash  # noqa: E402
 
 #: Le registre de référence : celui que la soumission publie. Douze décisions,
-#: mais **aucune pièce citée** — et le magasin livré à côté est vide. La
-#: capacité existe et ses tests unitaires la couvrent ; ce qui est publié ne la
-#: démontre pas.
+#: et aucune pièce citée.
+#:
+#: **Ce n'est pas un oubli, et la première version de ce commentaire le
+#: présentait à tort comme tel.** `scripts/hosted.py` documente la raison et
+#: dit l'avoir vérifiée plutôt que supposée : un registre de décisions est
+#: l'artefact le plus sensible d'un agent — ce qu'il a lu, ce qu'on lui a dit,
+#: ce qu'il a fait — et celui qu'on publie ne porte donc ni prompt, ni réponse,
+#: ni octet de preuve. C'est précisément ce que le projet défend, appliqué à
+#: lui-même.
 REGISTRE = RACINE / "runs" / "escalation" / "ledger.jsonl"
 
 #: D'où la seconde base : la course d'injection de `examples/injected_page.py`,
