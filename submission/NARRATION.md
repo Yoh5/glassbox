@@ -131,7 +131,7 @@ tourner, sinon on filme un écran de chargement.
 
 Texte, fond noir :
 
-> **220 tests. Apache 2.0.**
+> **231 tests. Apache 2.0.**
 > **github.com/Yoh5/glassbox**
 
 Pas de remerciements, pas de « merci d'avoir regardé ».

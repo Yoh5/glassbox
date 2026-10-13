@@ -90,6 +90,71 @@ def _absent(path: Path, what: str) -> str:
     )
 
 
+def _head(args: argparse.Namespace) -> int:
+    """Print the commitment someone else should write down.
+
+    The output is meant to be pasted somewhere the holder of the ledger does
+    not control — a ticket, a commit message, a message to a counterparty. That
+    is what makes it worth anything: a commitment kept beside the file it
+    commits to protects against nothing.
+    """
+    if not Path(args.ledger).exists():
+        print(_absent(Path(args.ledger), "a head to record"))
+        return 2
+
+    # `head` ne lit pas les pièces : il n'a besoin que de la chaîne, donc il
+    # n'expose pas `--evidence` et ne peut pas passer par `_ledger`.
+    count, head = Ledger(args.ledger).commitment()
+    if not count:
+        print(f"{args.ledger} holds no decisions, so there is no head to record.")
+        return 2
+
+    print(f"decisions  {count}")
+    print(f"head       {head}")
+    print()
+    print("Record these somewhere this ledger's holder does not control, and")
+    print("later refuse anything that does not match:")
+    print(f"  glassbox verify {args.ledger} --expect-count {count} "
+          f"--expect-head {head}")
+    return 0
+
+
+def _commitment_problems(led: Ledger, args: argparse.Namespace) -> list[str]:
+    """Compare the ledger against a commitment recorded earlier.
+
+    Separate messages for the two mismatches, because they mean different
+    things to whoever reads the failure. A different count means records were
+    added or removed; the same count with a different head means the content
+    was rewritten in place, which takes the writer's own tooling.
+    """
+    expected_count = getattr(args, "expect_count", None)
+    expected_head = getattr(args, "expect_head", None)
+    if expected_count is None and expected_head is None:
+        return []
+
+    count, head = led.commitment()
+    problems: list[str] = []
+    if expected_count is not None and count != expected_count:
+        sens = "added to" if count > expected_count else "removed from"
+        problems.append(
+            f"{abs(count - expected_count)} decision(s) have been {sens} this "
+            f"ledger since the head was recorded: {expected_count} then, "
+            f"{count} now. The chain still holds, which is exactly why the "
+            f"count has to be checked separately."
+        )
+    if expected_head is not None and head != expected_head:
+        if expected_count is None or count == expected_count:
+            problems.append(
+                f"the head does not match the one recorded: expected "
+                f"{expected_head}, found {head}. The record count is unchanged, "
+                f"so this ledger was rewritten rather than cut — which takes "
+                f"whatever wrote it in the first place."
+            )
+        else:
+            problems.append(f"head {head} does not match the recorded {expected_head}.")
+    return problems
+
+
 def _verify(args: argparse.Namespace) -> int:
     if not Path(args.ledger).exists():
         print(_absent(Path(args.ledger), "a chain that holds"))
@@ -99,6 +164,7 @@ def _verify(args: argparse.Namespace) -> int:
     problems = led.verify()
     if args.evidence:
         problems += EvidenceStore(args.evidence).verify()
+    problems += _commitment_problems(led, args)
 
     if not problems:
         count = len(led.records())
@@ -246,7 +312,20 @@ def main(argv: list[str] | None = None) -> int:
     verify = sub.add_parser("verify", help="re-chain the ledger and resolve every citation")
     verify.add_argument("ledger", type=Path)
     verify.add_argument("--evidence", type=Path, default=None)
+    # Les deux moitiés de l'engagement sont séparées exprès : un compte seul
+    # attrape une coupure, une tête seule attrape une réécriture, et seuls les
+    # deux ensemble attrapent les quatre attaques que la chaîne laisse passer.
+    verify.add_argument("--expect-count", type=int, default=None,
+                        help="fail unless the ledger holds exactly this many decisions")
+    verify.add_argument("--expect-head", type=str, default=None,
+                        help="fail unless the chain ends on this hash")
     verify.set_defaults(run=_verify)
+
+    head = sub.add_parser(
+        "head",
+        help="print the count and head hash to record elsewhere")
+    head.add_argument("ledger", type=Path)
+    head.set_defaults(run=_head)
 
     trace = sub.add_parser("trace", help="find the decisions behind an action, and what they read")
     trace.add_argument("ledger", type=Path)

@@ -381,6 +381,33 @@ class Ledger:
             return []
         return [line for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
+    def commitment(self) -> tuple[int, str | None]:
+        """How many decisions, and the hash at the end of the chain.
+
+        A chain proves that the records it holds follow one another. It proves
+        nothing about records it does **not** hold, and nothing about when any
+        of them was written. An adversarial bench against this ledger
+        (`scripts/adversarial.py`) catches six attacks out of ten with the chain
+        alone, and the four it misses share that one cause:
+
+        - cut the tail off and what remains is a valid chain;
+        - republish an older copy and it is a valid chain too;
+        - append a record you computed yourself and the chain still closes;
+        - hold the writer, rewrite everything, and the chain is perfect.
+
+        This pair is what closes all four — **provided someone who is not the
+        adversary wrote it down earlier**. Count and head together move under
+        every one of those four attacks, so a CI job, an auditor or a
+        counterparty that recorded `(count, head)` on Monday can refuse
+        Tuesday's file.
+
+        It is deliberately two small values: short enough to paste into a
+        ticket, a commit message or a chat, which is the whole point. What it
+        does not give you is *time* — nothing here proves when a record was
+        written, and that is what external anchoring is for.
+        """
+        return len(self._lines()), self._last_chain()
+
     def _last_chain(self) -> str | None:
         lines = self._lines()
         return json.loads(lines[-1])["chain"] if lines else None

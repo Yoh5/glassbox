@@ -18,11 +18,17 @@ because the three questions you actually ask then have no answer:
 3. **Is this log telling the truth?** A journal anyone can edit afterwards is a testimony,
    not a proof.
 
+On that third question, the honest version: **a hash chain proves that the records it
+holds follow one another, and nothing about records it does not hold.** Cut the tail off
+a ledger and what remains is a valid chain. `scripts/adversarial.py` runs ten attacks and
+publishes the four that get through, with the one line that closes them — see
+[What the chain does not prove](#what-the-chain-does-not-prove).
+
 ## State
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **220 tests.**
+[CADRAGE.md](CADRAGE.md). **231 tests.**
 
 | Piece | Status |
 |---|---|
@@ -30,7 +36,8 @@ Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 | Content-addressed evidence store | done |
 | Hash-chained decision ledger, with `verify` | done |
 | Incident tracing — from an action back to the byte | done |
-| CLI: `verify`, `trace`, `replay`, `stats` | done |
+| CLI: `verify`, `trace`, `replay`, `stats`, `head` | done |
+| Adversarial bench, and the four attacks it publishes as missed | done |
 | `Recorder` — the three lines an agent author writes | done |
 | Deterministic replay of a recorded decision | done |
 | Rule identity — "is that even the code that ran?" | done |
@@ -237,6 +244,54 @@ greeted anyone who mistyped the path — which is how most people meet a tool fo
 time. Every command that reads a ledger now exits 2 on a missing file and names the path,
 and `verify` refuses to call an empty ledger a pass: it cannot tell a run that has not
 started from one whose record is gone, so it says both.
+
+## What the chain does not prove
+
+The sentence at the top of this file used to stop at *"if someone rewrites the history, it
+shows"*. An adversarial bench was written to check it, and it does not — not for the
+simplest attack there is, which is not rewriting but **stopping the story early**.
+
+```
+python scripts/adversarial.py
+```
+
+Ten attacks against a real ledger, each run through the shipped `verify`:
+
+| attack | what it models | chain alone | + a head recorded elsewhere |
+|---|---|---|---|
+| edited field | a value rewritten in a decision | caught | caught |
+| deleted record | a decision removed from the middle | caught | caught |
+| swapped records | two decisions exchanged | caught | caught |
+| backdated timestamp | a decision antedated | caught | caught |
+| understated cost | a bill made to look smaller | caught | caught |
+| edited payload | the cited evidence changed on disk | caught | caught |
+| **truncation** | the end of the story cut off | **missed** | caught |
+| **rollback** | an older copy republished | **missed** | caught |
+| **forged append** | an invented decision, correctly chained | **missed** | caught |
+| **full rewrite** | the adversary holds the writer | **missed** | caught |
+
+The four misses have one cause, and it is structural rather than a bug: the chain says
+nothing about which records *should* exist, nor about when any of them was written.
+
+What closes them is two small values — the decision count and the hash at the end of the
+chain:
+
+```
+$ glassbox head runs/escalation/ledger.jsonl
+decisions  12
+head       sha256:82556f41...
+
+$ glassbox verify ledger.jsonl --expect-count 12 --expect-head sha256:82556f41...
+FAIL  4 decision(s) have been removed from this ledger since the head was recorded:
+      12 then, 8 now. The chain still holds, which is exactly why the count has to be
+      checked separately.
+```
+
+**The condition is not technical.** Those two values are worth something only if someone
+the adversary does not control wrote them down first — a CI job, an auditor, a
+counterparty. A commitment kept beside the file it commits to protects against nothing.
+And nothing here proves *when* a record was written, which is what external anchoring is
+for and why it stays on the roadmap rather than being quietly implied.
 
 ## Three design decisions worth stating
 
