@@ -260,7 +260,12 @@ def render(path: str, ledger: Ledger, notice: str = "") -> tuple[int, str]:
 
     if path.startswith("/decision/"):
         raw = path[len("/decision/"):].strip("/")
-        if raw.isdigit():
+        # `isascii()` as well as `isdigit()`: `"²".isdigit()` is True and
+        # `int("²")` raises, so `/decision/²` used to come out of this function
+        # as an uncaught ValueError — reachable from the internet on the hosted
+        # demo. Arabic-Indic digits do parse, but accepting them would mean two
+        # URLs for one record, which an audit trail should not have.
+        if raw.isascii() and raw.isdigit():
             return render_decision(ledger, int(raw))
 
     return 404, _document(
@@ -281,10 +286,28 @@ class _Handler(BaseHTTPRequestHandler):
         # Re-read on every request rather than caching: a ledger being written
         # while it is watched is the interesting case, and a viewer showing a
         # stale chain would be worse than no viewer.
-        status, body = render(self.path.split("?", 1)[0], self._ledger, self._notice)
+        chemin = self.path.split("?", 1)[0]
+        try:
+            status, body = render(chemin, self._ledger, self._notice)
+        except Exception as erreur:  # noqa: BLE001 - a viewer must answer
+            # A backstop, not an excuse. `render` is meant to be total, and the
+            # ledger reader now reports a malformed line instead of raising on
+            # it. But this process serves a public demo, and a traceback in
+            # place of a page tells a visitor nothing while telling them the
+            # tool is broken. The error is named, never the traceback: a stack
+            # trace on a public page is a map of the filesystem.
+            status, body = 500, _document(
+                "This viewer failed",
+                f"<div class='banner bad'><strong>The viewer could not render "
+                f"{_e(chemin)}.</strong><p>{_e(type(erreur).__name__)}. This is a "
+                "fault in the viewer, not a verdict on the ledger — run "
+                "<code>glassbox verify</code>, which is the tool that answers "
+                "that question.</p></div>",
+            )
         payload = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(payload)))
         # It renders no markup from the data and runs no script; the header
         # says so, so a browser enforces it even if this code one day slips.

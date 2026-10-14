@@ -61,7 +61,7 @@ read-only viewer.
   editing an entry breaks the chain and `glassbox verify` names the first
   record that does not hold — "something is wrong somewhere" is not a finding.
 - **States what the chain does not prove.** An adversarial bench
-  (`scripts/adversarial.py`) runs ten attacks against a real ledger and
+  (`scripts/adversarial.py`) runs thirteen attacks against a real ledger and
   publishes the four that get through: truncation, rollback, a forged append,
   and a full rewrite by whoever holds the writer. They share one cause — a chain
   proves that the records it holds follow one another, and nothing about records
@@ -159,7 +159,7 @@ changed in half of them. The 30B model answered *Paris*, *17 is prime* and
 *seven continents* alone; only *is a hot dog a sandwich* went to the 550B. That
 is the whole idea working.
 
-256 tests, no runtime dependencies, and every command that reads a ledger exits
+296 tests, no runtime dependencies, and every command that reads a ledger exits
 non-zero when there is none — printing an empty table would read as "nothing
 happened" rather than "nothing was recorded", which is the one confusion this
 project exists to prevent.
@@ -231,10 +231,10 @@ ledger-reading command exiting non-zero when there is no ledger; and the hosted
 read-only snapshot that this submission links to.
 
 Written last, and the reason the claim at the top of the README changed: an
-adversarial bench of ten attacks. It found that truncating a ledger -- not
+adversarial bench of thirteen attacks. It found that truncating a ledger -- not
 rewriting it, just stopping the story early -- left `verify` saying "the chain
 holds" while the totals quietly dropped from $0.0029 to $0.0019 and "the answer
-changed in 50% of escalations" became 0%. Four of the ten get through on the
+changed in 50% of escalations" became 0%. Four of the thirteen get through on the
 chain alone. `glassbox head` and `verify --expect-count/--expect-head` close all
 four, the README now states its perimeter instead of implying a wider one, and
 the bench ships as a regression test rather than as a paragraph.

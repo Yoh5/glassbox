@@ -91,6 +91,11 @@ class Attaque:
     appliquer: Callable[[List[dict], Path], List[dict]]
     #: `True` quand l'attaque n'a de sens que sur une course citant des pièces.
     exige_pieces: bool = False
+    #: Appelé sur le fichier de registre APRÈS écriture. Les attaques ci-dessus
+    #: manipulent des enregistrements, donc elles ne peuvent produire que du
+    #: JSON valide — et c'est précisément l'angle mort que ce banc a eu : il
+    #: n'avait jamais essayé de simplement casser le fichier.
+    apres: Optional[Callable[[Path], None]] = None
     #: Rempli à l'exécution : avec la chaîne seule, puis avec l'engagement.
     attrapee: Optional[bool] = None
     attrapee_avec_engagement: Optional[bool] = None
@@ -193,6 +198,37 @@ def piece_jointe_modifiee(e: List[dict], travail: Path) -> List[dict]:
     return e
 
 
+def octet_corrompu(registre: Path) -> None:
+    """Un octet ajouté à la fin. L'attaque la moins chère qui existe.
+
+    Elle faisait lever `JSONDecodeError` à `verify` au lieu de lui faire rendre
+    un verdict : un auditeur ne pouvait pas distinguer un registre cassé d'un
+    outil cassé, et un script non plus, les deux sortant non nuls. Et comme
+    `append` lit la dernière chaîne avant d'écrire, le greffier ne pouvait plus
+    rien enregistrer — un déni d'enregistrement pour un octet.
+    """
+    registre.write_text(registre.read_text(encoding="utf-8") + "x\n",
+                        encoding="utf-8")
+
+
+def ligne_remplacee_par_du_bruit(registre: Path) -> None:
+    """Une décision écrasée par du bruit : une suppression déguisée en panne.
+
+    Un lecteur qui se contenterait de sauter la ligne illisible rendrait cette
+    attaque gratuite — sauter sans le dire est exactement la suppression.
+    """
+    lignes = registre.read_text(encoding="utf-8").splitlines()
+    lignes[5] = "}{ ceci n'est pas une decision"
+    registre.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+
+
+def cles_retirees(registre: Path) -> None:
+    """Une décision vidée de ses champs obligatoires, en restant du JSON valide."""
+    lignes = registre.read_text(encoding="utf-8").splitlines()
+    lignes[5] = json.dumps({"chain": "sha256:" + "0" * 64})
+    registre.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+
+
 ATTAQUES = [
     Attaque("champ modifié", "une valeur réécrite dans une décision", True,
             champ_modifie),
@@ -213,6 +249,16 @@ ATTAQUES = [
             ajout_force),
     Attaque("réécriture complète", "l'adversaire tient l'outil d'écriture", False,
             reecriture_complete),
+    # Les trois suivantes ne passent pas par les enregistrements : elles
+    # abîment le fichier. Ajoutées le 14/10/2026, parce que les dix premières
+    # produisaient toutes du JSON valide — le banc vérifiait la solidité de la
+    # chaîne et jamais celle du lecteur.
+    Attaque("octet corrompu", "un octet ajouté à la fin du fichier", True,
+            lambda e, _: e, apres=octet_corrompu),
+    Attaque("ligne remplacée par du bruit", "une décision écrasée, pas retirée", True,
+            lambda e, _: e, apres=ligne_remplacee_par_du_bruit),
+    Attaque("champs obligatoires retirés", "du JSON valide qui n'est pas un enregistrement",
+            True, lambda e, _: e, apres=cles_retirees),
 ]
 
 
@@ -283,6 +329,8 @@ def lancer(attaques=ATTAQUES) -> List[Attaque]:
                 shutil.copytree(pieces, travail / "evidence")
             cible = travail / "ledger.jsonl"
             _ecrire(att.appliquer(json.loads(json.dumps(base)), travail), cible)
+            if att.apres is not None:
+                att.apres(cible)
             magasin_cible = travail / "evidence" if pieces is not None else None
             att.code, att.sortie = _verifier(cible, magasin_cible)
             att.attrapee = att.code != 0

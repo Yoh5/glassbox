@@ -20,7 +20,7 @@ because the three questions you actually ask then have no answer:
 
 On that third question, the honest version: **a hash chain proves that the records it
 holds follow one another, and nothing about records it does not hold.** Cut the tail off
-a ledger and what remains is a valid chain. `scripts/adversarial.py` runs ten attacks and
+a ledger and what remains is a valid chain. `scripts/adversarial.py` runs thirteen attacks and
 publishes the four that get through, with the one line that closes them — see
 [What the chain does not prove](#what-the-chain-does-not-prove).
 
@@ -28,7 +28,7 @@ publishes the four that get through, with the one line that closes them — see
 
 Core in place, under test. Built for the Nebius x NVIDIA Global AI Hackathon
 (*Coding and Agentic Engineering*), and the framing document is in
-[CADRAGE.md](CADRAGE.md). **256 tests.**
+[CADRAGE.md](CADRAGE.md). **296 tests.**
 
 | Piece | Status |
 |---|---|

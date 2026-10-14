@@ -104,6 +104,43 @@ _BODY_KEYS = (
 #: which `verify` reports rather than ignores.
 _STRUCTURAL_KEYS = ("prev", "chain")
 
+#: Without these a line is not a record, and `_revive` would raise KeyError on
+#: it. `asks` and `rule_digest` are absent from ledgers written before they
+#: existed, so they are not required.
+_CLES_REQUISES = ("name", "started_at", "agent_version", "evidence",
+                  "model_calls", "actions", "outcome", "prev", "chain")
+
+
+def _analyser(numero: int, ligne: str) -> tuple[Mapping[str, Any] | None, str | None]:
+    """Un line in, either a record or the reason it is not one. Never raises.
+
+    This file is the one input an adversary is assumed to control — the whole
+    point of the chain is that someone may have edited it. Yet every reader
+    here used to call `json.loads` bare, so a single corrupt byte did not
+    produce a verdict: it produced a `JSONDecodeError`. A tool whose claim is
+    *it detects tampering* has to answer tampering with a finding, not a
+    traceback. An auditor cannot tell a broken ledger from a broken tool, and a
+    script cannot tell either, because both exit non-zero.
+
+    Worse, `append` reads the last chain before writing, so one appended byte
+    stopped the recorder from ever appending again — every later decision lost,
+    which is the one failure this project cannot have. For the cost of one byte.
+    """
+    try:
+        brut = json.loads(ligne)
+    except json.JSONDecodeError as erreur:
+        return None, (f"line {numero} is not valid JSON ({erreur.msg} at column "
+                      f"{erreur.colno}): it is not a record, and nothing vouches "
+                      "for what it replaced")
+    if not isinstance(brut, Mapping):
+        return None, (f"line {numero} is valid JSON but not an object "
+                      f"({type(brut).__name__}): it is not a record")
+    manquantes = [cle for cle in _CLES_REQUISES if cle not in brut]
+    if manquantes:
+        return None, (f"line {numero} is missing {', '.join(manquantes)}: "
+                      "it is not a record")
+    return brut, None
+
 
 def _canonical(body: Mapping[str, Any]) -> str:
     """The one rendering a record's hash is taken over, and the one written.
@@ -209,8 +246,32 @@ class Ledger:
             rule_digest=rule_digest,
         )
 
+    def _analysees(self) -> tuple[list[Mapping[str, Any]], list[str]]:
+        """Every line that is a record, and a problem for every line that is not.
+
+        The two halves are returned together on purpose: a malformed line that
+        is merely skipped is indistinguishable from a deleted one, and silent
+        deletion is the attack. Nothing here drops a line without saying so.
+        """
+        records: list[Mapping[str, Any]] = []
+        problems: list[str] = []
+        for numero, ligne in enumerate(self._lines(), start=1):
+            brut, souci = _analyser(numero, ligne)
+            if souci is not None:
+                problems.append(souci)
+            else:
+                assert brut is not None
+                records.append(brut)
+        return records, problems
+
     def records(self) -> list[Decision]:
-        return [self._revive(json.loads(line)) for line in self._lines()]
+        """The well-formed records. `verify` is what reports the rest.
+
+        A reader that raised on a corrupt line could show nothing at all — so
+        the page an auditor opens on a tampered ledger would be a traceback
+        rather than the banner that says it does not hold.
+        """
+        return [self._revive(raw) for raw in self._analysees()[0]]
 
     def verify(self) -> list[str]:
         """Re-chains the whole file and resolves every citation.
@@ -218,11 +279,10 @@ class Ledger:
         Reports the position of the first record that does not hold, counting
         from one, because "something is wrong somewhere" is not a finding.
         """
-        problems: list[str] = []
+        lus, problems = self._analysees()
         prev: str | None = None
 
-        for position, line in enumerate(self._lines(), start=1):
-            raw = json.loads(line)
+        for position, raw in enumerate(lus, start=1):
             body = {key: raw[key] for key in _BODY_KEYS if key in raw}
 
             if raw.get("prev") != prev:
@@ -397,8 +457,8 @@ class Ledger:
         A chain proves that the records it holds follow one another. It proves
         nothing about records it does **not** hold, and nothing about when any
         of them was written. An adversarial bench against this ledger
-        (`scripts/adversarial.py`) catches six attacks out of ten with the chain
-        alone, and the four it misses share that one cause:
+        (`scripts/adversarial.py`) catches nine attacks out of thirteen with the
+        chain alone, and the four it misses share that one cause:
 
         - cut the tail off and what remains is a valid chain;
         - republish an older copy and it is a valid chain too;
@@ -415,12 +475,35 @@ class Ledger:
         ticket, a commit message or a chat, which is the whole point. What it
         does not give you is *time* — nothing here proves when a record was
         written, and that is what external anchoring is for.
+
+        A line that is not a record is not counted, because the count is of
+        decisions and a reader who counted raw lines would report a different
+        number than another reader on the same file. Garbage appended to the
+        file therefore moves neither value — that case belongs to `verify`,
+        which reports it for as long as the line is there. The two tools answer
+        different questions and neither covers for the other.
         """
-        return len(self._lines()), self._last_chain()
+        lus, _ = self._analysees()
+        return len(lus), self._last_chain()
 
     def _last_chain(self) -> str | None:
-        lines = self._lines()
-        return json.loads(lines[-1])["chain"] if lines else None
+        """The chain at the end of the *well-formed* records.
+
+        Not simply the last line. One corrupt byte appended to the file used to
+        raise here, and since `append` reads this before writing, the recorder
+        could never append again: a denial-of-recording attack for the price of
+        one byte, against the one failure this project cannot have.
+
+        Building on the last good chain is the deliberate choice. Refusing to
+        append would hand that attack its result; the corrupt line stays in the
+        file and `verify` reports it for as long as the ledger exists, so
+        nothing is hidden — recording simply continues over it.
+        """
+        lus, _ = self._analysees()
+        if not lus:
+            return None
+        chain = lus[-1].get("chain")
+        return chain if isinstance(chain, str) else None
 
     @staticmethod
     def _revive(raw: Mapping[str, Any]) -> Decision:
