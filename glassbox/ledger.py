@@ -106,7 +106,17 @@ _STRUCTURAL_KEYS = ("prev", "chain")
 
 
 def _canonical(body: Mapping[str, Any]) -> str:
-    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """The one rendering a record's hash is taken over, and the one written.
+
+    `allow_nan=False` on purpose. Python writes `NaN` and `Infinity` for
+    non-finite floats and reads them back again, so a ledger holding either
+    verified clean here while `jq`, Go and Rust rejected the line — a file that
+    claims to be JSON Lines and is not. The redactor describes such values
+    before they arrive; this raises if one ever gets past it, because failing
+    loudly beats appending a line no auditor can parse to an append-only file.
+    """
+    return json.dumps(body, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False)
 
 
 def _chain_hash(body: Mapping[str, Any], prev: str | None) -> str:

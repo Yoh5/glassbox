@@ -151,7 +151,17 @@ class DecisionContext:
         # redacting this same dictionary — the copy, not the original.
         champs = self._recorder.redact_value(fields)
         self._actions.append({"kind": self._recorder.redact(kind), **champs})
-        self._outcome = {"action": kind, "reason": self._recorder.redact(str(fields))}
+        # Rendered from the redacted copy, not from `fields`. `str(fields)`
+        # called every value's `__repr__` a second time, outside the redactor's
+        # guard: an object whose `__repr__` raised took the whole decision
+        # block down, and `__exit__` then recorded `failed: RuntimeError`.
+        # The action may well have succeeded — the ledger was blaming the agent
+        # for the recorder's own stringification. An audit tool that
+        # misattributes is worse than one that says nothing.
+        #
+        # It also means the reason now says exactly what the record holds,
+        # rather than describing an original the reader cannot see.
+        self._outcome = {"action": kind, "reason": self._recorder.redact(str(champs))}
 
     def refuse(self, reason: str) -> None:
         """Nothing was done, and the record says why. A refusal is a decision."""
