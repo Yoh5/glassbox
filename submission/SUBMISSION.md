@@ -1,6 +1,16 @@
 # Glass Box — le dossier Devpost
 
-Piste : **Coding and Agentic Engineering**.
+Piste : **Best Apps and Agents**.
+
+> **Changé le 15/10/2026, et c'est un risque évité.** Ce dossier annonçait
+> *Coding and Agentic Engineering* depuis le cadrage. Le règlement définit
+> cette piste comme « coding agents and developer tools: **agents that write,
+> run, and test code** » — Glass Box n'écrit, n'exécute et ne teste aucun code.
+> Or l'étape un du jugement est un **pass/fail** sur l'adéquation au thème.
+> *Best Apps and Agents* décrit littéralement le routeur : « Reach for Nemotron
+> 3 Ultra when you need serious reasoning, and let Nano or Super handle the
+> fast, everyday calls. » Les réponses du formulaire sont dans
+> `submission/FORM-NEBIUS.md`.
 Échéance : **30 octobre 2026, 10:00 PDT**.
 
 ---
