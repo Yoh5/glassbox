@@ -14,16 +14,30 @@ Glass Box
 ## Elevator pitch (200 caractères max)
 
 ```
-Your agents make decisions. This one tells you which, on what information, what
-it cost, and whether anyone rewrote the record afterwards.
+Glass Box records what an agent decided and the bytes it stood on, then seals it. Edit one record and the verifier names it instead of reporting the log is fine. 12 decisions on Nemotron, $0.0029.
 ```
 
-138 caractères. L'alternative, plus concrète et plus longue (188) :
+**196 caractères sur 200.** Choisi en mesurant les dix gagnants d'Agents for
+Humans : leurs pitchs de galerie font 196, 199, 192, 182 et 115 caractères,
+soit **177 en moyenne sur 200 disponibles**. Un pitch de 138 caractères laisse
+un quart de la carte vide là où un juré décide s'il ouvre le projet.
+
+Leur forme est toujours la même, et celui-ci la suit : **ce que ça fait, puis
+le refus, puis un chiffre mesuré.** Comparer :
+
+> Instanter : « ... then stops and asks a licensed attorney. **4 of 46 are ones
+> hand-counting gets wrong.** »
+> Plainletter : « ... and on a folded photo **it left out the 7 facts it
+> couldn't find**. »
+
+Les deux chiffres cités ici sortent de `glassbox stats runs/escalation/ledger.jsonl`
+(12 décisions, 0,0029 $) et le modèle est bien Nemotron 3 — ce que « Technological
+Implementation » note explicitement.
+
+Variante si tu préfères ouvrir sur la question plutôt que sur le produit (186) :
 
 ```
-A flight recorder for AI agents: every decision, the bytes it stood on, what it
-cost, and a hash chain that makes a rewritten record visible. Measured on
-Nemotron: $0.0029 for twelve asks.
+Your agents decide. Glass Box records which decision, on which bytes, at what cost, in a hash chain - so a record rewritten afterwards is visible instead of silent. Measured on Nemotron.
 ```
 
 ---

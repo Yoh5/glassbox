@@ -16,7 +16,10 @@ Palette validée pour fond sombre : surface `#1a1a19`, encre `#ffffff` /
 Deux formats, parce que GitHub en veut deux :
 
 - `cover.png` (2400x900) — la bannière du README, nette sur écran dense ;
-- `social.png` (1280x640) — l'aperçu social, dont GitHub impose la taille.
+- `social.png` (1280x640) — l'aperçu social, dont GitHub impose la taille ;
+- `devpost-cover.png` (1800x1200) — la couverture Devpost. **3:2**, parce que
+  la galerie sert ses vignettes en 333x222 et les affiche en 269x179 : c'est
+  mesuré sur la galerie, pas supposé, et une image 16:9 y serait rognée.
 
 Usage :
     python submission/video/couverture.py
@@ -32,7 +35,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from keynote import (ACCENT, CRITIQUE, ENCRE, ENCRE_2, ENCRE_3, MONO, MONO_G,
                      REGISTRE, SANS, SANS_G, SANS_L, SURFACE, ecrire, f,
-                     melanger, opacite)
+                     melanger, nombre_de_tests, opacite)
 
 #: Les couvertures sont des actifs du depot, pas du dossier de soumission :
 #: le README les reference, donc elles vivent sous `docs/`.
@@ -116,19 +119,72 @@ def composer(l: int, h: int, echelle: float) -> Image.Image:
            echelle=echelle)
 
     ecrire(d, (marge + total + int(l * 0.04), int(h * 0.735)),
-           "220 tests", f(MONO_G, int(26 * echelle)), opacite(ENCRE_2, 0.95))
+           f"{nombre_de_tests()} tests", f(MONO_G, int(26 * echelle)),
+           opacite(ENCRE_2, 0.95))
     ecrire(d, (marge + total + int(l * 0.04), int(h * 0.80)),
            "Apache 2.0", f(MONO, int(24 * echelle)), opacite(ENCRE_3, 0.95))
     return img
 
 
+# ── La couverture Devpost : 3:2, et lisible en 269 pixels ────────────────
+#
+# Mesuré plutôt que supposé : Devpost sert la vignette de galerie en 333x222
+# et l'affiche en **269x179**. C'est du 3:2, pas du 16:9 -- une couverture
+# large y serait rognée haut et bas, et le maillon rompu avec.
+#
+# 269 pixels, c'est la contrainte qui décide tout le reste. À cette taille le
+# texte d'un hachage ne se lit plus, et une chaîne de huit maillons devient une
+# bouillie. Donc cinq maillons seulement, deux fois plus gros, et une seule
+# chose à comprendre d'un coup d'oeil : il y en a un qui est rouge et qui est
+# tombé de la ligne. Le reste est pour la page du projet, où l'image est
+# grande.
+
+def composer_devpost(l: int, h: int, echelle: float) -> Image.Image:
+    img = fond(l, h)
+    d = ImageDraw.Draw(img)
+    marge = int(l * 0.08)
+
+    ecrire(d, (marge, int(h * 0.13)), "Glass Box", f(SANS_G, int(150 * echelle)),
+           ENCRE, suivi=3 * echelle)
+    ecrire(d, (marge, int(h * 0.30)),
+           "Every decision an agent made,", f(SANS_L, int(62 * echelle)),
+           ENCRE_2, suivi=echelle)
+    ecrire(d, (marge, int(h * 0.385)),
+           "sealed so a rewrite shows.", f(SANS_L, int(62 * echelle)),
+           ENCRE_2, suivi=echelle)
+
+    # Cinq maillons, larges : à la vignette on ne lit pas les empreintes, on
+    # voit une chaîne et un trou. C'est tout ce que la vignette doit dire.
+    n = 5
+    larg = int(l * 0.155)
+    ecart = int(l * 0.035)
+    haut = int(h * 0.165)
+    total = n * larg + (n - 1) * ecart
+    x0 = (l - total) // 2
+    chaine(d, x0, int(h * 0.58), n, larg, haut, ecart, rompu=2,
+           echelle=echelle * 1.9)
+
+    ecrire(d, (l / 2, int(h * 0.885)),
+           "the verifier names the record it cannot vouch for",
+           f(SANS_L, int(40 * echelle)), opacite(ENCRE_3, 0.95), centre=True,
+           suivi=echelle)
+    ecrire(d, (l / 2, int(h * 0.945)),
+           f"{nombre_de_tests()} tests  ·  Apache 2.0  ·  NVIDIA Nemotron on Nebius Token Factory",
+           f(MONO, int(28 * echelle)), opacite(ENCRE_3, 0.75), centre=True)
+    return img
+
+
 def main() -> int:
     SORTIE.mkdir(parents=True, exist_ok=True)
-    for nom, (l, h, e) in {
-        "cover.png": (2400, 900, 1.0),
-        "social.png": (1280, 640, 0.62),
-    }.items():
-        img = composer(l, h, e)
+    formats = {
+        "cover.png": (composer, 2400, 900, 1.0),
+        "social.png": (composer, 1280, 640, 0.62),
+        # 3:2, le rapport que Devpost sert vraiment. 1800 de large pour que la
+        # vignette de 333 soit un sous-échantillonnage net, pas un étirement.
+        "devpost-cover.png": (composer_devpost, 1800, 1200, 1.0),
+    }
+    for nom, (fabrique, l, h, e) in formats.items():
+        img = fabrique(l, h, e)
         chemin = SORTIE / nom
         img.save(chemin, optimize=True)
         print(f"ecrit : {chemin.name}  {l}x{h}  "

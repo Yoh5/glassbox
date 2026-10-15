@@ -1,0 +1,97 @@
+# Keeping the judges' demo awake, and being honest about how well that works.
+#
+# The demo runs on a free instance that sleeps after fifteen minutes of quiet.
+# The first load after that takes about half a minute -- measured at 21.5 s on
+# 15 October 2026 -- which is long enough for a judge to close the tab.
+#
+# ## Why this file is a copy, and what the original got wrong
+#
+# The same file in Yoh5/callfirst said "this pings it every fourteen minutes",
+# on a `*/14` schedule, and did nothing of the sort. GitHub drops and delays scheduled runs on public
+# repositories, and `gh run list` showed what actually happened over three
+# days: runs at 20:56, 17:34, 12:29, 06:51, 01:52, 23:06, 18:29, 11:34 --
+# between three and six HOURS apart, not fourteen minutes. The service was
+# therefore asleep almost all of the time, and the workflow that existed to
+# prevent that was reporting success while it happened.
+#
+# Then one run failed, which is the only reason anybody looked. A single
+# `curl --max-time 120` against an instance that was cold hit exit 28, and
+# because the step runs under `bash -e` the job died on the spot. So the
+# workflow announced a red cross on a public repository for the exact
+# situation it was written to handle.
+#
+# ## What this version does instead
+#
+# A fired run holds the service awake for the next fifty minutes rather than
+# poking it once: GitHub decides *when* a run happens and we cannot change
+# that, but we can decide how long it lasts. Actions minutes are free on public
+# repositories, so the only cost is the wall clock.
+#
+# A cold start is the expected case, not a failure. The first attempt gets a
+# generous budget, the loop keeps going if a single ping times out, and the job
+# fails only if the service never answered once in fifty minutes -- which is
+# the only thing a red cross here should ever mean.
+#
+# It is still not a promise that the demo is warm when a judge arrives, and the
+# submission says so with the measured number instead of implying otherwise.
+
+name: keep-awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+# Exactly one pinger alive at a time. A newer run replaces the one in flight
+# rather than queueing behind it, so the fifty-minute window always starts from
+# the most recent moment GitHub agreed to run anything.
+concurrency:
+  group: keep-awake
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Hold the demo awake for fifty minutes
+        run: |
+          URL=https://glassbox-demo.onrender.com/
+          FIN=$(( $(date +%s) + 50 * 60 ))
+          reponses=0
+          echecs=0
+
+          while [ "$(date +%s)" -lt "$FIN" ]; do
+            debut=$(date +%s)
+            # 180 s : un démarrage à froid de Render dépasse régulièrement les
+            # 120 s qui faisaient échouer la version précédente.
+            # `|| true` et non `|| echo 000` : curl écrit déjà « 000 » via -w
+            # quand il échoue, et le repli en ajoutait un second ("000000").
+            # Le `|| true` est là pour `bash -e`, qui tuait le job sur le
+            # premier démarrage à froid.
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 180 "$URL" || true)
+            code=${code:-000}
+            duree=$(( $(date +%s) - debut ))
+
+            if [ "$code" = "200" ]; then
+              reponses=$(( reponses + 1 ))
+              echo "$(date -u +%H:%M:%S)  200 en ${duree}s"
+            else
+              echecs=$(( echecs + 1 ))
+              echo "$(date -u +%H:%M:%S)  $code apres ${duree}s"
+            fi
+
+            [ "$(date +%s)" -lt "$FIN" ] || break
+            sleep 120
+          done
+
+          echo "---"
+          echo "$reponses reponse(s) 200, $echecs echec(s) sur la fenetre"
+
+          # Un ping manqué n'est pas une panne : le service peut être en train
+          # de se réveiller, ou Render de redéployer. Ne rougir que si rien
+          # n'a répondu de toute la fenêtre.
+          if [ "$reponses" -eq 0 ]; then
+            echo "::error::le service n'a repondu aucune fois en 50 minutes"
+            exit 1
+          fi
