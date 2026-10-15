@@ -159,7 +159,7 @@ changed in half of them. The 30B model answered *Paris*, *17 is prime* and
 *seven continents* alone; only *is a hot dog a sandwich* went to the 550B. That
 is the whole idea working.
 
-296 tests, no runtime dependencies, and every command that reads a ledger exits
+329 tests, no runtime dependencies, and every command that reads a ledger exits
 non-zero when there is none — printing an empty table would read as "nothing
 happened" rather than "nothing was recorded", which is the one confusion this
 project exists to prevent.
@@ -261,7 +261,20 @@ http-server, pytest, render
   rend `glassbox stats runs/escalation/ledger.jsonl` en local.
   ⚠️ Render endort les services gratuits : prévoir ~30 s au premier chargement,
   et ouvrir le lien avant de le donner à un juré.
-- **Video (public, YouTube, under 3 minutes):** à tourner
+- **Video (public, YouTube, under 3 minutes):** rendue —
+  `python submission/video/keynote.py` écrit
+  `submission/video/glassbox-keynote.mp4`, **2:10**, 1920×1080, neuf scènes,
+  6,7 Mo. Reste à la mettre en ligne et à coller le lien ici.
+  La narration est **synthétique** (`edge-tts`, voix neuronale) et la
+  soumission le dit ; aucune musique, le règlement interdit les pistes sous
+  droits. Chaque phrase est dite d'abord et mesurée à l'échantillon, et sa
+  scène est tenue exactement ce temps : l'image et le son ne peuvent pas
+  dériver. Le script **échoue** si le total atteint 3:00.
+  Rien n'est illustré : les douze maillons portent leurs vrais paliers et
+  leurs vrais coûts lus dans `runs/escalation/ledger.jsonl`, le refus du
+  vérificateur est **exécuté** au rendu, et le nombre de tests de la carte de
+  fin vient de `pytest --collect-only`. Temps forts : la rupture à **1:23**,
+  les cinq commandes à 1:47.
 - **Upstream contribution:** deux dépôts sur `nebius/token-factory-cookbook` —
   [PR #73](https://github.com/nebius/token-factory-cookbook/pull/73) : l'exemple
   de code de la page Nemotron Nano rend 404, l'API ne sert que la forme en casse

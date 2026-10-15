@@ -35,19 +35,23 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
+import wave
 from pathlib import Path
 from typing import Iterator
 
 import imageio
+import imageio_ffmpeg
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 RACINE = Path(__file__).resolve().parent.parent.parent
 CAPTURES = Path(__file__).resolve().parent / "captures"
 REGISTRE = RACINE / "runs/escalation/ledger.jsonl"
+FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 L, H = 1920, 1080
 SURFACE = (26, 26, 25)
@@ -167,6 +171,142 @@ def lancer(args: list[str]) -> tuple[int, list[str]]:
     return fini.returncode, [l.rstrip() for l in brut.splitlines() if l.strip()]
 
 
+def nombre_de_tests() -> int:
+    """Compté par pytest au moment du rendu, jamais écrit à la main.
+
+    La carte de fin annonçait **220 tests** pendant tout le temps qu'il a fallu
+    pour en ajouter soixante-seize. Un chiffre tapé dans une vidéo ne vieillit
+    pas moins vite qu'un chiffre tapé dans un README, et celui-là était sur la
+    dernière image, celle qu'un juré regarde en notant le dépôt.
+
+    Compter les `def test_` donnerait un autre nombre encore : les tests
+    paramétrés se démultiplient à la collecte. C'est donc la collecte qui
+    fait foi.
+    """
+    fini = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q"],
+                          cwd=RACINE, capture_output=True, text=True,
+                          errors="replace", timeout=300)
+    derniere = [l for l in (fini.stdout or "").splitlines() if "test" in l][-1]
+    nombre = re.search(r"(\d+)\s+tests?\s+collected", derniere)
+    if not nombre:
+        raise SystemExit(f"impossible de compter les tests : {derniere!r}")
+    return int(nombre.group(1))
+
+
+# ── La narration, qui décide la durée des scènes ─────────────────────────
+#
+# L'ancienne version portait neuf durées écrites à la main, et une bande son
+# qu'il aurait fallu caler dessus après coup. L'ordre est inversé : la phrase
+# est dite d'abord, son wav est mesuré à l'échantillon, et la scène est tenue
+# exactement ce temps-là. L'image et le son ne peuvent pas dériver, parce que
+# rien n'est chronométré deux fois.
+#
+# La voix est synthétique (`edge-tts`), et la soumission le dit. Le règlement
+# Nebius demande une vidéo de moins de trois minutes, sans musique sous droits.
+
+VOIX = "en-US-AndrewNeural"
+DEBIT = "-6%"
+LIMITE = 180.0
+
+NARRATION = {
+    "ouverture": "An agent took twelve decisions in this run. Nobody can say "
+                 "which ones, or what they cost.",
+    "these": "A log you can edit afterwards is testimony. It is not proof. Everything in this project follows from refusing that one thing.",
+    "enregistrement": "This is one record, in full. What ran, when, the models "
+                      "it asked and what they cost. And prev, which carries the "
+                      "hash of the record before it. Remove or change one line, "
+                      "and every line after it breaks.",
+    "chaine": "So each decision seals the one before it. Twelve records, two "
+              "escalations, and a total of twenty-nine hundredths of a cent. "
+              "The running cost on screen is summed from the records being "
+              "drawn, so it cannot say one thing while the chain says another.",
+    "chiffres": "Twelve decisions, for twenty-nine hundredths of a cent. Two "
+                "escalations out of twelve, and in half of them the answer "
+                "actually changed. Which is what makes the next one awkward.",
+    "escalades": "Here are both of them. The expensive one, super to ultra, "
+                 "changed nothing. The cheap one, nano to super, changed the "
+                 "answer. Paying more did not buy a different answer, and "
+                 "without the ledger nobody could know that.",
+    "rupture": "Now the part that matters. We take a sealed copy and add one "
+               "field to a single record. Severity, benign. Nothing else is "
+               "touched. No hash covers that field, so the chain breaks exactly "
+               "there, and verify says so. It does not report that the ledger "
+               "looks fine. It names the record it cannot vouch for.",
+    "commandes": "Five commands are the whole audit surface. Does the chain "
+                 "still hold. Which decision caused this action. Would the rule "
+                 "decide the same today. What the run cost. And all four "
+                 "answers on one page.",
+    "fin": "Glass Box. A ledger an auditor verifies without reading the code. Apache two point zero, and the demo is live.",
+}
+
+#: Le plancher de chaque scène : ce qu'il faut pour que l'animation reste
+#: lisible même si la phrase est plus courte que le mouvement qu'elle décrit.
+#: Douze maillons qui se dessinent en huit secondes ne se lisent pas.
+MINIMA = {"ouverture": 7.0, "these": 10.0, "enregistrement": 13.0,
+          "chaine": 20.0, "chiffres": 11.0, "escalades": 15.0,
+          "rupture": 24.0, "commandes": 13.0, "fin": 9.0}
+
+SILENCE_INITIAL = 4.5   # l'empreinte qui émerge du flou, avant le premier mot
+TRAVAIL = Path(__file__).resolve().parent / "_travail"
+
+
+def dire(cle: str) -> Path:
+    """Rend la phrase, puis la convertit en wav pour pouvoir la mesurer."""
+    TRAVAIL.mkdir(exist_ok=True)
+    mp3, wav = TRAVAIL / f"{cle}.mp3", TRAVAIL / f"{cle}.wav"
+    if not wav.exists():
+        # `--rate=-6%` et non `--rate -6%` : argparse lit un débit négatif
+        # comme une option courte.
+        subprocess.run([sys.executable, "-m", "edge_tts", "--voice", VOIX,
+                        f"--rate={DEBIT}", "--text", NARRATION[cle],
+                        "--write-media", str(mp3)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([FFMPEG, "-y", "-i", str(mp3), "-ac", "1", "-ar", "48000",
+                        str(wav)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return wav
+
+
+def secondes(wav: Path) -> float:
+    with wave.open(str(wav)) as f:
+        return f.getnframes() / f.getframerate()
+
+
+def minuter() -> tuple[dict[str, float], dict[str, float]]:
+    """(durée de chaque scène, durée de chaque phrase) — dans l'ordre du film."""
+    parle = {cle: secondes(dire(cle)) for cle in NARRATION}
+    # Une queue d'une seconde après chaque phrase : sans elle, la scène coupe
+    # sur la dernière syllabe et la suivante commence avant qu'on ait fini de
+    # lire l'écran.
+    scenes = {cle: max(parle[cle] + 1.0, MINIMA[cle]) for cle in NARRATION}
+    return scenes, parle
+
+
+def piste_narration(scenes: dict[str, float], parle: dict[str, float]) -> Path:
+    """Une seule piste, construite à partir des durées de scène elles-mêmes.
+
+    Le silence qui suit chaque phrase n'est pas choisi : c'est exactement ce
+    qui reste de la scène. Il n'existe donc aucun endroit où l'audio et
+    l'image pourraient être calés différemment.
+    """
+    morceaux: list[bytes] = []
+    premiere = wave.open(str(TRAVAIL / "ouverture.wav"))
+    params = premiere.getparams()
+    premiere.close()
+    muet = b"\x00" * (params.sampwidth * params.nchannels)
+    morceaux.append(muet * round(SILENCE_INITIAL * params.framerate))
+    for cle in NARRATION:
+        with wave.open(str(TRAVAIL / f"{cle}.wav")) as f:
+            morceaux.append(f.readframes(f.getnframes()))
+        morceaux.append(muet * round((scenes[cle] - parle[cle]) * params.framerate))
+    piste = TRAVAIL / "narration.wav"
+    with wave.open(str(piste), "wb") as f:
+        f.setparams(params)
+        for m in morceaux:
+            f.writeframes(m)
+    return piste
+
+
 def copie_alteree() -> tuple[Path, int]:
     """Ajoute un champ non haché à une copie. Jamais à l'original."""
     CAPTURES.mkdir(parents=True, exist_ok=True)
@@ -253,11 +393,11 @@ def dessiner_chaine(d: ImageDraw.ImageDraw, reg: list[dict], *,
                f(MONO, 20), opacite(ENCRE_3, 0.9 * a), centre=True)
         if m["escalade"]:
             ecrire(d, (x + MAILLON_L / 2, y - 34),
-                   f"escalade  {m['escalade']} -> {m['tier']}", f(SANS, 22),
+                   f"escalated  {m['escalade']} -> {m['tier']}", f(SANS, 22),
                    opacite(ACCENT, 0.85 * a), centre=True, suivi=1)
         if casse and ecarte > 0.35:
             ecrire(d, (x + MAILLON_L / 2, y + MAILLON_H + 16),
-                   "X  non couvert par le hachage", f(SANS_G, 24),
+                   "X  not covered by any hash", f(SANS_G, 24),
                    opacite(CRITIQUE, (ecarte - 0.35) / 0.65), centre=True, suivi=1)
 
 
@@ -292,10 +432,15 @@ class Film:
     ne peut pas.
     """
 
-    def __init__(self, fps: int) -> None:
+    def __init__(self, fps: int, durees: dict[str, float]) -> None:
         self.fps = fps
         self.n = 0
+        self.durees = durees
         self.reperes: list[tuple[float, str]] = []
+
+    def duree(self, cle: str) -> float:
+        """Ce que la phrase de cette scene dure reellement."""
+        return self.durees[cle]
 
     def repere(self, nom: str) -> None:
         self.reperes.append((self.n / self.fps, nom))
@@ -330,31 +475,31 @@ def scene_ouverture(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
         flou = max(0.0, 7.0 * (1 - a))
         return img.filter(ImageFilter.GaussianBlur(flou)) if flou > 0.4 else img
 
-    yield from film.anime(4.5, dessine)
+    yield from film.anime(SILENCE_INITIAL, dessine)
 
     def dessine2(t: float) -> Image.Image:
         img = fond()
         d = ImageDraw.Draw(img)
         a = sortie_cubique(min(1.0, t * 1.8))
         dy = int(30 * (1 - a))
-        ecrire(d, (L / 2, H / 2 - 92 + dy), "Un agent a pris douze decisions.",
+        ecrire(d, (L / 2, H / 2 - 92 + dy), "An agent took twelve decisions.",
                f(SANS_L, 72), opacite(ENCRE, a), centre=True, suivi=1)
         if t > 0.42:
             b = sortie_cubique((t - 0.42) / 0.4)
             ecrire(d, (L / 2, H / 2 + 24 + int(22 * (1 - b))),
-                   "Personne ne peut dire lesquelles.", f(SANS_L, 46),
+                   "Nobody can say which ones.", f(SANS_L, 46),
                    opacite(ENCRE_3, 0.95 * b), centre=True, suivi=1)
         return img
 
-    yield from film.anime(8.0, dessine2)
+    yield from film.anime(film.duree("ouverture"), dessine2)
 
 
 def scene_these(film: Film) -> Iterator[Image.Image]:
     film.repere("these")
     lignes = [
-        ("Un journal qu'on peut editer apres coup", 58, ENCRE_2),
-        ("est un temoignage.", 58, ENCRE_2),
-        ("Pas une preuve.", 74, ACCENT),
+        ("A log you can edit afterwards", 58, ENCRE_2),
+        ("is testimony.", 58, ENCRE_2),
+        ("Not proof.", 74, ACCENT),
     ]
 
     def dessine(t: float) -> Image.Image:
@@ -373,7 +518,7 @@ def scene_these(film: Film) -> Iterator[Image.Image]:
             y += taille + 52
         return img
 
-    yield from film.anime(12.0, dessine)
+    yield from film.anime(film.duree("these"), dessine)
 
 
 def scene_chaine(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
@@ -383,7 +528,7 @@ def scene_chaine(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
     def dessine(t: float) -> Image.Image:
         img = fond()
         d = ImageDraw.Draw(img)
-        ecrire(d, (L / 2, 168), "Chaque decision scelle la precedente.",
+        ecrire(d, (L / 2, 168), "Each decision seals the one before.",
                f(SANS_L, 54), opacite(ENCRE, sortie_cubique(min(1, t * 6))),
                centre=True, suivi=1)
         avance = sortie_cubique(min(1.0, t / 0.78)) * len(reg)
@@ -392,25 +537,25 @@ def scene_chaine(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
         vus = reg[: int(min(len(reg), math.ceil(avance)))]
         ecrire(d, (L - 120, 180), f"${sum(m['cout'] for m in vus):.4f}",
                f(MONO_G, 46), opacite(ENCRE, 0.9), centre=True)
-        ecrire(d, (L - 120, 232), "cout cumule", f(SANS, 22),
+        ecrire(d, (L - 120, 232), "running cost", f(SANS, 22),
                opacite(ENCRE_3, 0.9), centre=True, suivi=1)
         if t > 0.86:
             b = sortie_cubique((t - 0.86) / 0.14)
             ecrire(d, (L / 2, H - 132),
-                   f"douze decisions, {total:.4f} $, deux escalades",
+                   f"twelve decisions, ${total:.4f}, two escalations",
                    f(SANS, 32), opacite(ENCRE_2, b), centre=True, suivi=1)
         return img
 
-    yield from film.anime(24.0, dessine)
+    yield from film.anime(film.duree("chaine"), dessine)
 
 
 def scene_chiffres(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
     film.repere("chiffres")
     tuiles = [
         ("12", "decisions"),
-        ("$0.0029", "cout total"),
-        ("2 / 12", "escalades"),
-        ("50 %", "ont change la reponse"),
+        ("$0.0029", "total cost"),
+        ("2 / 12", "escalations"),
+        ("50 %", "changed the answer"),
     ]
 
     def dessine(t: float) -> Image.Image:
@@ -430,15 +575,15 @@ def scene_chiffres(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
         if t > 0.56:
             b = sortie_cubique((t - 0.56) / 0.3)
             ecrire(d, (L / 2, H / 2 + 150 + int(20 * (1 - b))),
-                   "L'escalade la plus chere n'a rien change.",
+                   "The expensive escalation changed nothing.",
                    f(SANS_L, 44), opacite(ENCRE_2, b), centre=True, suivi=1)
             if t > 0.72:
                 c = sortie_cubique((t - 0.72) / 0.28)
-                ecrire(d, (L / 2, H / 2 + 216), "La moins chere, oui.",
+                ecrire(d, (L / 2, H / 2 + 216), "The cheap one did.",
                        f(SANS_G, 44), opacite(ACCENT, c), centre=True, suivi=1)
         return img
 
-    yield from film.anime(18.0, dessine)
+    yield from film.anime(film.duree("chiffres"), dessine)
 
 
 def scene_rupture(film: Film, reg: list[dict], rompu: int,
@@ -450,14 +595,14 @@ def scene_rupture(film: Film, reg: list[dict], rompu: int,
         d = ImageDraw.Draw(img)
         if t < 0.22:
             a = sortie_cubique(t / 0.22)
-            ecrire(d, (L / 2, 168), "On ajoute un champ a une copie scellee.",
+            ecrire(d, (L / 2, 168), "We add one field to a sealed copy.",
                    f(SANS_L, 50), opacite(ENCRE, a), centre=True, suivi=1)
             ecrire(d, (L / 2, 236), '"severity": "benign"', f(MONO_G, 40),
                    opacite(CRITIQUE, a), centre=True, suivi=2)
             dessiner_chaine(d, reg, jusqua=len(reg))
             return img
         ecarte = sortie_cubique(min(1.0, (t - 0.22) / 0.2))
-        ecrire(d, (L / 2, 168), "Aucun hachage ne le couvre.", f(SANS_L, 50),
+        ecrire(d, (L / 2, 168), "No hash covers it.", f(SANS_L, 50),
                opacite(ENCRE, 1.0), centre=True, suivi=1)
         dessiner_chaine(d, reg, jusqua=len(reg), rompu=rompu, ecarte=ecarte)
         if t > 0.5:
@@ -473,11 +618,16 @@ def scene_rupture(film: Film, reg: list[dict], rompu: int,
                        opacite(coul, a), centre=True)
         return img
 
-    yield from film.anime(30.0, dessine)
+    yield from film.anime(film.duree("rupture"), dessine)
 
 
 def scene_fin(film: Film) -> Iterator[Image.Image]:
     film.repere("fin")
+    # Compté UNE fois, pas une fois par image. Écrit directement dans `dessine`,
+    # l'appel partait à chaque image -- deux cent soixante-dix fois pour neuf
+    # secondes -- et le rendu ne finissait plus. Un chiffre lu au moment du
+    # rendu reste la bonne idée ; le lire dans la boucle d'images ne l'est pas.
+    tests = nombre_de_tests()
 
     def dessine(t: float) -> Image.Image:
         img = fond()
@@ -488,17 +638,17 @@ def scene_fin(film: Film) -> Iterator[Image.Image]:
         if t > 0.3:
             b = sortie_cubique((t - 0.3) / 0.3)
             ecrire(d, (L / 2, H / 2 - 20),
-                   "Un registre qu'un auditeur verifie sans lire le code.",
+                   "A ledger an auditor verifies without reading the code.",
                    f(SANS_L, 40), opacite(ENCRE_2, b), centre=True, suivi=1)
         if t > 0.55:
             c = sortie_cubique((t - 0.55) / 0.3)
-            ecrire(d, (L / 2, H / 2 + 86), "220 tests  ·  Apache 2.0",
+            ecrire(d, (L / 2, H / 2 + 86), f"{tests} tests  ·  Apache 2.0",
                    f(SANS, 30), opacite(ENCRE_3, c), centre=True, suivi=2)
             ecrire(d, (L / 2, H / 2 + 146), "github.com/Yoh5/glassbox",
                    f(MONO, 32), opacite(ACCENT, c), centre=True, suivi=1)
         return img
 
-    yield from film.anime(11.0, dessine)
+    yield from film.anime(film.duree("fin"), dessine)
 
 
 def scene_enregistrement(film: Film) -> Iterator[Image.Image]:
@@ -518,7 +668,7 @@ def scene_enregistrement(film: Film) -> Iterator[Image.Image]:
         img = fond()
         d = ImageDraw.Draw(img)
         a = sortie_cubique(min(1.0, t * 5))
-        ecrire(d, (L / 2, 150), "Un maillon, en entier.", f(SANS_L, 52),
+        ecrire(d, (L / 2, 150), "One record, in full.", f(SANS_L, 52),
                opacite(ENCRE, a), centre=True, suivi=1)
         x = 430
         y = 300
@@ -533,14 +683,14 @@ def scene_enregistrement(film: Film) -> Iterator[Image.Image]:
         if t > 0.66:
             c = sortie_cubique((t - 0.66) / 0.34)
             ecrire(d, (L / 2, H - 230),
-                   "prev porte l'empreinte du precedent.", f(SANS_L, 42),
+                   "prev carries the hash of the one before.", f(SANS_L, 42),
                    opacite(ENCRE, c), centre=True, suivi=1)
             ecrire(d, (L / 2, H - 166),
-                   "Retirer ou modifier une ligne casse toutes les suivantes.",
+                   "Remove or change one line and every line after it breaks.",
                    f(SANS_L, 36), opacite(ENCRE_3, c), centre=True, suivi=1)
         return img
 
-    yield from film.anime(14.0, dessine)
+    yield from film.anime(film.duree("enregistrement"), dessine)
 
 
 def scene_escalades(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
@@ -553,7 +703,7 @@ def scene_escalades(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
         img = fond()
         d = ImageDraw.Draw(img)
         a = sortie_cubique(min(1.0, t * 5))
-        ecrire(d, (L / 2, 150), "Deux escalades. Deux resultats.",
+        ecrire(d, (L / 2, 150), "Two escalations. Two outcomes.",
                f(SANS_L, 52), opacite(ENCRE, a), centre=True, suivi=1)
         for k, m in enumerate(esc[:2]):
             debut = 0.16 + k * 0.18
@@ -571,36 +721,36 @@ def scene_escalades(film: Film, reg: list[dict]) -> Iterator[Image.Image]:
             if t > debut + 0.2:
                 c = sortie_cubique((t - debut - 0.2) / 0.2)
                 ecrire(d, (x, 572),
-                       "la reponse a change" if change else "la reponse n'a pas change",
+                       "the answer changed" if change else "the answer did not change",
                        f(SANS, 34), opacite(ACCENT if change else ENCRE_3, c),
                        centre=True, suivi=1)
         if t > 0.68:
             e = sortie_cubique((t - 0.68) / 0.32)
-            ecrire(d, (L / 2, H - 208), "Payer plus n'achete pas une reponse differente.",
+            ecrire(d, (L / 2, H - 208), "Paying more does not buy a different answer.",
                    f(SANS_L, 44), opacite(ENCRE_2, e), centre=True, suivi=1)
-            ecrire(d, (L / 2, H - 142), "Sans registre, on ne pourrait pas le savoir.",
+            ecrire(d, (L / 2, H - 142), "Without the ledger, nobody could know that.",
                    f(SANS_G, 40), opacite(ACCENT, e), centre=True, suivi=1)
         return img
 
-    yield from film.anime(16.0, dessine)
+    yield from film.anime(film.duree("escalades"), dessine)
 
 
 def scene_commandes(film: Film) -> Iterator[Image.Image]:
     """Ce qu'un auditeur tape, sans lire une ligne du code."""
     film.repere("commandes")
     cmds = [
-        ("verify", "la chaine tient-elle encore"),
-        ("trace", "quelle decision a cause cette action"),
-        ("replay", "la regle deciderait-elle pareil"),
-        ("stats", "ce que la passe a coute"),
-        ("serve", "les quatre reponses sur une page"),
+        ("verify", "does the chain still hold"),
+        ("trace", "which decision caused this action"),
+        ("replay", "would the rule decide the same"),
+        ("stats", "what the run cost"),
+        ("serve", "all four answers on one page"),
     ]
 
     def dessine(t: float) -> Image.Image:
         img = fond()
         d = ImageDraw.Draw(img)
         a = sortie_cubique(min(1.0, t * 5))
-        ecrire(d, (L / 2, 158), "Ce qu'un auditeur tape.", f(SANS_L, 52),
+        ecrire(d, (L / 2, 158), "What an auditor types.", f(SANS_L, 52),
                opacite(ENCRE, a), centre=True, suivi=1)
         y = 320
         for k, (cmd, quoi) in enumerate(cmds):
@@ -614,11 +764,11 @@ def scene_commandes(film: Film) -> Iterator[Image.Image]:
             y += 74
         if t > 0.8:
             c = sortie_cubique((t - 0.8) / 0.2)
-            ecrire(d, (L / 2, H - 150), "Sans lire une ligne de notre code.",
+            ecrire(d, (L / 2, H - 150), "Without reading a line of our code.",
                    f(SANS_L, 40), opacite(ENCRE_3, c), centre=True, suivi=1)
         return img
 
-    yield from film.anime(13.0, dessine)
+    yield from film.anime(film.duree("commandes"), dessine)
 
 
 def images(film: Film) -> Iterator[Image.Image]:
@@ -653,20 +803,43 @@ def main() -> int:
                                             / "glassbox-keynote.mp4"))
     args = ap.parse_args()
 
-    film = Film(args.fps)
+    print("narration")
+    scenes, parle = minuter()
+    for cle in NARRATION:
+        tenue = "" if parle[cle] + 1.0 >= MINIMA[cle] else "  (plancher)"
+        print(f"  {cle:<16} dit {parle[cle]:5.2f} s, scene {scenes[cle]:5.2f} s{tenue}")
+
+    total = SILENCE_INITIAL + sum(scenes.values())
+    print(f"\ntotal : {int(total)//60}:{total % 60:04.1f}")
+    # Le reglement Nebius dit « less than three (3) minutes ». Echouer ici coute
+    # une phrase a raccourcir ; livrer trop long coute la soumission.
+    if total >= LIMITE:
+        print(f"ECHEC : {total:.1f} s atteint la limite de {LIMITE:.0f} s.")
+        print("Raccourcir une phrase de NARRATION, pas la video.")
+        return 1
+
+    film = Film(args.fps, scenes)
     sortie = Path(args.sortie)
     sortie.parent.mkdir(parents=True, exist_ok=True)
-    print("rendu (les commandes sont relancees)...", flush=True)
-    with imageio.get_writer(sortie, fps=args.fps, codec="libx264", quality=8,
+    muette = TRAVAIL / "muette.mp4"
+    print("\nrendu (les commandes sont relancees)...", flush=True)
+    with imageio.get_writer(muette, fps=args.fps, codec="libx264", quality=8,
                             macro_block_size=1) as w:
         for img in images(film):
             w.append_data(np.asarray(img))
     duree = film.n / args.fps
     print(f"  {film.n} images, {duree:.1f} s a {args.fps} fps")
-    if duree > 178:
-        print(f"  ATTENTION : {duree:.0f} s pour un plafond de 180 s")
-    print(f"ecrit : {sortie}  ({sortie.stat().st_size/1e6:.1f} Mo)")
-    print("\nTemps forts, pour caler une piste sonore :")
+
+    print("montage")
+    piste = piste_narration(scenes, parle)
+    subprocess.run([FFMPEG, "-y", "-i", str(muette), "-i", str(piste),
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest",
+                    str(sortie)], check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print(f"\necrit : {sortie}  ({sortie.stat().st_size/1e6:.1f} Mo)")
+    print(f"  marge sous la limite : {LIMITE - duree:.1f} s")
+    print("\nChapitres :")
     for s, nom in film.reperes:
         print(f"  {int(s)//60}:{int(s)%60:02d}  {nom}")
     return 0
